@@ -1185,7 +1185,7 @@ export class Game {
     // @ts-ignore
     body.wakeUp?.();
 
-    const speed = this.rand(2, 9);
+    const speed = this.rand(2, 39);
     const dist = Vector3.Distance(release, bouncePoint);
     const t = this.clamp(dist / speed, 0.25, 1.35);
 
@@ -1253,6 +1253,7 @@ export class Game {
           const v = body.getLinearVelocity();
 
           const speed2 = Math.max(v.length() * 0.65, 6);
+          
           const newV = toward.scale(speed2);
 
           newV.y = Math.max(v.y, 1.0);
