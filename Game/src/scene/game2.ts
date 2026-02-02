@@ -68,6 +68,19 @@ export class Game {
   private activeBall: AbstractMesh | null = null;
   private activeBallAgg: PhysicsAggregate | null = null;
 
+  // =========================================================
+  // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
+  // =========================================================
+  private BAT_BASE_POWER = 2.2;
+  private BAT_MAX_POWER = 10.5;
+
+  private BAT_LOFT_BASE = 0.6;
+  private BAT_LOFT_MAX = 3.8;
+
+  private SIX_TIMING_MIN = 0.68; // must be almost perfect
+  private SIX_ALIGN_MIN = 0.75;
+  private SIX_SWING_SPEED_MIN = 1.0;
+
   // Scheduler
   private deliveryIntervalMs = 2300;
   private nextDeliveryAt = 0;
@@ -178,26 +191,23 @@ export class Game {
   // ✅ HARD FIX: FORCE CANVAS TOP + KILL CSS OVERLAYS (pseudo-elements)
   // =========================================================
   private forceCanvasFullscreenAndTop() {
-    // Ensure body + root don’t create layers
     document.documentElement.style.margin = "0";
     document.documentElement.style.padding = "0";
     document.body.style.margin = "0";
     document.body.style.padding = "0";
     document.body.style.overflow = "hidden";
 
-    // Force canvas to be truly fullscreen + above any “background overlays”
     const c = this.canvas;
     c.style.position = "fixed";
     c.style.inset = "0";
     c.style.width = "100vw";
     c.style.height = "100vh";
     c.style.display = "block";
-    c.style.zIndex = "50"; // 🔥 important (above template overlays)
+    c.style.zIndex = "50";
     c.style.background = "transparent";
     c.style.filter = "none";
     (c.style as any).webkitFilter = "none";
 
-    // If parent exists, neutralize it too
     const p = c.parentElement as HTMLElement | null;
     if (p) {
       p.style.position = "relative";
@@ -215,15 +225,8 @@ export class Game {
     const style = document.createElement("style");
     style.id = id;
 
-    // ✅ This kills the most common “dark overlay layer” patterns:
-    // - body::before / ::after
-    // - #root::before / ::after
-    // - app wrappers with background overlay
     style.textContent = `
-      html, body, #root {
-        background: transparent !important;
-      }
-
+      html, body, #root { background: transparent !important; }
       body::before, body::after,
       #root::before, #root::after,
       .app::before, .app::after,
@@ -232,8 +235,6 @@ export class Game {
         display: none !important;
         opacity: 0 !important;
       }
-
-      /* kill generic overlay divs if they exist */
       .overlay, .backdrop, .modal-overlay, .fullscreen-overlay, .game-over-overlay {
         display: none !important;
         opacity: 0 !important;
@@ -488,112 +489,96 @@ export class Game {
   // ✅ BOUNDARY + WICKET DETECTION HELPERS
   // =========================================================
   private setupBoundaryAndWickets(scene: Scene) {
-  const findByNameLoose = (needle: string) => {
-    const n = needle.toLowerCase();
+    const findByNameLoose = (needle: string) => {
+      const n = needle.toLowerCase();
 
-    // exact match first
-    let mesh = scene.meshes.find((m) => (m.name || "").toLowerCase() === n);
-    if (mesh) return { type: "mesh" as const, node: mesh };
+      let mesh = scene.meshes.find((m) => (m.name || "").toLowerCase() === n);
+      if (mesh) return { type: "mesh" as const, node: mesh };
 
-    let tn = scene.transformNodes.find((t) => (t.name || "").toLowerCase() === n);
-    if (tn) return { type: "tn" as const, node: tn };
+      let tn = scene.transformNodes.find((t) => (t.name || "").toLowerCase() === n);
+      if (tn) return { type: "tn" as const, node: tn };
 
-    // contains match
-    mesh = scene.meshes.find((m) => (m.name || "").toLowerCase().includes(n));
-    if (mesh) return { type: "mesh" as const, node: mesh };
+      mesh = scene.meshes.find((m) => (m.name || "").toLowerCase().includes(n));
+      if (mesh) return { type: "mesh" as const, node: mesh };
 
-    tn = scene.transformNodes.find((t) => (t.name || "").toLowerCase().includes(n));
-    if (tn) return { type: "tn" as const, node: tn };
+      tn = scene.transformNodes.find((t) => (t.name || "").toLowerCase().includes(n));
+      if (tn) return { type: "tn" as const, node: tn };
 
-    return null;
-  };
+      return null;
+    };
 
-  const collectChildrenMeshes = (root: any): Mesh[] => {
-    const out: Mesh[] = [];
-    for (const m of scene.meshes) {
-      if (!m || m.name === "__root__") continue;
-      // collect all descendants (not just direct parent)
-      let p: any = m.parent;
-      while (p) {
-        if (p === root) {
-          out.push(m as Mesh);
-          break;
+    const collectChildrenMeshes = (root: any): Mesh[] => {
+      const out: Mesh[] = [];
+      for (const m of scene.meshes) {
+        if (!m || m.name === "__root__") continue;
+        let p: any = m.parent;
+        while (p) {
+          if (p === root) {
+            out.push(m as Mesh);
+            break;
+          }
+          p = p.parent;
         }
-        p = p.parent;
       }
+      return out;
+    };
+
+    const boundaryNode = findByNameLoose("boundary");
+    let boundaryMeshes: Mesh[] = [];
+
+    if (boundaryNode?.type === "mesh") boundaryMeshes = [boundaryNode.node as Mesh];
+    else if (boundaryNode?.type === "tn") boundaryMeshes = collectChildrenMeshes(boundaryNode.node);
+
+    if (boundaryMeshes.length) {
+      boundaryMeshes.forEach((bm) => {
+        bm.computeWorldMatrix(true);
+        bm.refreshBoundingInfo(true);
+      });
+
+      let minX = Number.POSITIVE_INFINITY,
+        minZ = Number.POSITIVE_INFINITY,
+        maxX = Number.NEGATIVE_INFINITY,
+        maxZ = Number.NEGATIVE_INFINITY;
+
+      for (const bm of boundaryMeshes) {
+        try {
+          const bb = bm.getBoundingInfo().boundingBox;
+          const vMin = bb.minimumWorld;
+          const vMax = bb.maximumWorld;
+          minX = Math.min(minX, vMin.x);
+          minZ = Math.min(minZ, vMin.z);
+          maxX = Math.max(maxX, vMax.x);
+          maxZ = Math.max(maxZ, vMax.z);
+        } catch {}
+      }
+
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+      const rx = (maxX - minX) / 2;
+      const rz = (maxZ - minZ) / 2;
+      const r = Math.max(rx, rz);
+
+      this.boundaryMesh = boundaryMeshes[0];
+      this.boundaryCenter.set(cx, this.baseY, cz);
+      this.boundaryRadius = Math.max(0.01, r);
+
+      console.log("[BOUNDARY FIX] meshes:", boundaryMeshes.length);
+      console.log("[BOUNDARY FIX] center:", this.boundaryCenter.toString(), "radius:", this.boundaryRadius);
+    } else {
+      this.boundaryMesh = null;
+      this.boundaryRadius = 0;
+      console.warn('Boundary not found (searched loosely for "boundary"). 4/6 scoring disabled.');
     }
-    return out;
-  };
 
-  // ✅ BOUNDARY
-  const boundaryNode = findByNameLoose("boundary");
-  let boundaryMeshes: Mesh[] = [];
+    const wicketNames = ["wicket1", "wicket2", "wicket3"];
+    this.wicketMeshes = wicketNames
+      .map((n) => scene.getMeshByName(n) || (scene.getNodeByName(n) as any))
+      .filter(Boolean) as any[];
 
-  if (boundaryNode?.type === "mesh") {
-    boundaryMeshes = [boundaryNode.node as Mesh];
-  } else if (boundaryNode?.type === "tn") {
-    boundaryMeshes = collectChildrenMeshes(boundaryNode.node);
-  }
-
-  if (boundaryMeshes.length) {
-    // Force world matrices + bounding info
-    boundaryMeshes.forEach((bm) => {
-      bm.computeWorldMatrix(true);
-      bm.refreshBoundingInfo(true);
-    });
-
-    // ✅ robust bounds (better than boundingSphere for a ring)
-    let minX = Number.POSITIVE_INFINITY,
-      minZ = Number.POSITIVE_INFINITY,
-      maxX = Number.NEGATIVE_INFINITY,
-      maxZ = Number.NEGATIVE_INFINITY;
-
-    for (const bm of boundaryMeshes) {
-      try {
-        const bi = bm.getBoundingInfo();
-        const bb = bi.boundingBox;
-
-        const vMin = bb.minimumWorld;
-        const vMax = bb.maximumWorld;
-
-        minX = Math.min(minX, vMin.x);
-        minZ = Math.min(minZ, vMin.z);
-        maxX = Math.max(maxX, vMax.x);
-        maxZ = Math.max(maxZ, vMax.z);
-      } catch {}
+    if (!this.wicketMeshes.length) {
+      console.warn('Wicket meshes "wicket1/wicket2/wicket3" not found. OUT detection disabled.');
     }
-
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-
-    // radius = half of max width/height in XZ
-    const rx = (maxX - minX) / 2;
-    const rz = (maxZ - minZ) / 2;
-    const r = Math.max(rx, rz);
-
-    this.boundaryMesh = boundaryMeshes[0];
-    this.boundaryCenter.set(cx, this.baseY, cz);
-    this.boundaryRadius = Math.max(0.01, r);
-
-    console.log("[BOUNDARY FIX] meshes:", boundaryMeshes.length);
-    console.log("[BOUNDARY FIX] center:", this.boundaryCenter.toString(), "radius:", this.boundaryRadius);
-  } else {
-    this.boundaryMesh = null;
-    this.boundaryRadius = 0;
-    console.warn('Boundary not found (searched loosely for "boundary"). 4/6 scoring disabled.');
   }
-
-  // ✅ WICKETS (unchanged)
-  const wicketNames = ["wicket1", "wicket2", "wicket3"];
-  this.wicketMeshes = wicketNames
-    .map((n) => scene.getMeshByName(n) || (scene.getNodeByName(n) as any))
-    .filter(Boolean) as any[];
-
-  if (!this.wicketMeshes.length) {
-    console.warn('Wicket meshes "wicket1/wicket2/wicket3" not found. OUT detection disabled.');
-  }
-}
-
 
   private isInsideBoundary(p: Vector3) {
     if (!this.boundaryRadius || !Number.isFinite(this.boundaryRadius)) return true;
@@ -622,7 +607,6 @@ export class Game {
   // ✅ MAIN SCENE
   // =========================================================
   private async createScene() {
-    // 🔥 do these FIRST
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
 
@@ -634,19 +618,15 @@ export class Game {
     this.ensureCountdown();
     this.showPlayAgain(false);
 
-    // ✅ set clearColor normally
     scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
 
-    // ✅ lights (adds clarity; stadium won’t look “dead black”)
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), scene);
     hemi.intensity = 1.2;
 
     const sun = new DirectionalLight("sun", new Vector3(-0.35, -1, -0.25), scene);
     sun.intensity = 2.0;
 
-    // =========================================================
     // ✅ HDR
-    // =========================================================
     try {
       const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
       scene.environmentTexture = hdr;
@@ -663,16 +643,12 @@ export class Game {
       console.warn("HDR failed to load:", e);
     }
 
-    // =========================================================
     // ✅ Havok Physics
-    // =========================================================
     const hk = await HavokPhysics();
     const plugin = new HavokPlugin(true, hk);
     scene.enablePhysics(new Vector3(0, -9.81, 0), plugin);
 
-    // =========================================================
     // ✅ Load stadium
-    // =========================================================
     const stadium = await SceneLoader.ImportMeshAsync("", "/models/", "cricket3.glb", scene);
 
     stadium.meshes.forEach((m) => {
@@ -699,9 +675,7 @@ export class Game {
       }
     }
 
-    // =========================================================
     // ✅ Grab required points
-    // =========================================================
     this.ballRelease = this.getPoint(scene, "BallRelease");
     this.batsmanPoint = this.getPoint(scene, "BatsmanPoint");
     this.wicketTarget = this.getPoint(scene, "WicketTarget");
@@ -733,9 +707,7 @@ export class Game {
     this.setupBoundaryAndWickets(scene);
     this.createEnvironmentColliders(scene);
 
-    // =========================================================
     // ✅ Camera
-    // =========================================================
     const lookDir = pitchStart.subtract(batsman).normalize();
     const eyeHeight = 0.2;
     const eyeBack = 0.4;
@@ -761,9 +733,7 @@ export class Game {
       camera.setTarget(new Vector3(ps.x, this.baseY + eyeHeight, ps.z));
     });
 
-    // =========================================================
     // ✅ Post FX pipeline
-    // =========================================================
     const pipeline = new DefaultRenderingPipeline("realismPipeline", true, scene, [camera]);
     pipeline.fxaaEnabled = true;
     pipeline.imageProcessingEnabled = true;
@@ -773,7 +743,6 @@ export class Game {
     pipeline.bloomWeight = 0.25;
     pipeline.bloomKernel = 64;
 
-    // ✅ IMPORTANT: disable DOF + vignette (feels like overlay)
     pipeline.depthOfFieldEnabled = false;
 
     pipeline.sharpenEnabled = true;
@@ -786,15 +755,15 @@ export class Game {
       pipeline.imageProcessing.exposure = 1.10;
     }
 
-    // =========================================================
     // ✅ Bat
-    // =========================================================
     await this.setupBat3D(scene);
 
-    // =========================================================
     // ✅ Wicket helper collider
-    // =========================================================
-    const wicketBox = MeshBuilder.CreateBox("WicketTargetCollider", { width: 0.4, height: 1.0, depth: 0.2 }, scene);
+    const wicketBox = MeshBuilder.CreateBox(
+      "WicketTargetCollider",
+      { width: 0.4, height: 1.0, depth: 0.2 },
+      scene
+    );
     wicketBox.position = wicket.clone().add(new Vector3(0, 0.5, 0));
     wicketBox.isVisible = false;
     new PhysicsAggregate(wicketBox, PhysicsShapeType.BOX, { mass: 0, friction: 0.9, restitution: 0.05 }, scene);
@@ -941,7 +910,7 @@ export class Game {
       this.lastBatPos.copyFrom(this.batRoot.position);
       this.lastBatT = now;
 
-      // HIT ASSIST
+      // HIT ASSIST (stick ball to sweet spot for 2 frames)
       if (this.hitAssistFramesLeft > 0 && this.activeBall && this.activeBallAgg && this.batStart) {
         const sweet = this.batStart.getAbsolutePosition().clone();
 
@@ -986,22 +955,19 @@ export class Game {
           }
 
           this.ballWasHit = true;
-          // if (this.scene && this.ballObserver) {
-          //   this.scene.onBeforeRenderObservable.remove(this.ballObserver);
-          //   this.ballObserver = null;
-          // }
-
           this.touchedGroundSinceHit = false;
 
           // @ts-ignore
           body.wakeUp?.();
 
+          // ---- direction basis
           const baseDir = ps.subtract(ballPos).normalize();
           const vLen = batVel.length();
           const batVelDir = vLen > 0.001 ? batVel.scale(1 / vLen) : baseDir;
 
           const dir = batVelDir.scale(0.75).add(baseDir.scale(0.25)).normalize();
 
+          // ---- timing window
           const bp = this.worldPos(this.batsmanPoint);
           const distToBatsman = Vector3.Distance(ballPos, bp);
 
@@ -1010,22 +976,57 @@ export class Game {
           const timingRaw = 1 - this.clamp(Math.abs(distToBatsman - IDEAL) / WINDOW, 0, 1);
           const timingScore = timingRaw * timingRaw;
 
+          // ---- alignment & speed
           const align = this.clamp(Vector3.Dot(batVelDir, dir), 0, 1);
-          const speed = this.clamp(vLen, 0, 20);
+          const swingSpeed = this.clamp(vLen, 0, 18);
+          const swingFactor = this.clamp((swingSpeed - 3) / 10, 0, 1);
 
-          const base = 4.5;
-          const maxExtra = 16.0;
-          const power = base + maxExtra * timingScore * (0.35 + 0.65 * align) + speed * 0.35 * timingScore;
+          // ---- sweet spot (middle only)
+          const sweetSpotFactor = 1 - Math.abs(hit.t - 0.5) * 2; // 1 at center, 0 at edges
+          const sweet = this.clamp(sweetSpotFactor, 0, 1);
 
-          const loftBase = 0.8;
-          const loftMax = 6.5;
-          const loft = loftBase + loftMax * timingScore + hit.t * 1.5 * timingScore;
+          // ---- harsher timing curve (prevents “every click = six”)
+          const timingFactor = Math.pow(timingScore, 1.6);
+          const alignFactor = this.clamp(align, 0, 1);
 
-          let finalDir = dir.clone();
+          // =========================================================
+          // ✅ REALISTIC POWER + LOFT + SIX GATE
+          // =========================================================
+          let power =
+            this.BAT_BASE_POWER +
+            this.BAT_MAX_POWER * timingFactor * sweet * alignFactor * swingFactor;
+
+          let loft =
+            this.BAT_LOFT_BASE +
+            this.BAT_LOFT_MAX * timingFactor * sweet * swingFactor;
+
+          // Penalize mistimed / edge hits heavily
           if (timingScore < 0.35) {
-            finalDir = finalDir.add(new Vector3(this.rand(-0.25, 0.25), 0, this.rand(-0.25, 0.25))).normalize();
+            power *= 0.45;
+            loft *= 0.4;
           }
 
+          // SIX only when all are perfect
+          const isSixCandidate =
+            timingScore >= this.SIX_TIMING_MIN &&
+            alignFactor >= this.SIX_ALIGN_MIN &&
+            swingSpeed >= this.SIX_SWING_SPEED_MIN &&
+            sweet > 0.7;
+
+          if (!isSixCandidate) {
+            loft *= 0.55;
+            power *= 0.85;
+          }
+
+          // Direction randomness on bad timing/edge
+          let finalDir = dir.clone();
+          if (timingScore < 0.5 || sweet < 0.5) {
+            finalDir = finalDir
+              .add(new Vector3(this.rand(-0.35, 0.35), this.rand(-0.15, 0.15), this.rand(-0.35, 0.35)))
+              .normalize();
+          }
+
+          // Hit assist launch
           this.hitAssistFramesLeft = 2;
           this.hitAssistVel.copyFrom(finalDir.scale(power));
           this.hitAssistVel.y += loft;
@@ -1172,12 +1173,7 @@ export class Game {
     this.prevInsideBoundary = this.isInsideBoundary(ball.position);
 
     const restitution = this.rand(0.12, 0.35);
-    const ballAgg = new PhysicsAggregate(
-      ball,
-      PhysicsShapeType.SPHERE,
-      { mass: 0.156, friction: 0.28, restitution },
-      scene
-    );
+    const ballAgg = new PhysicsAggregate(ball, PhysicsShapeType.SPHERE, { mass: 0.156, friction: 0.28, restitution }, scene);
 
     const body = ballAgg.body;
     body.setLinearDamping(0.01);
@@ -1253,7 +1249,6 @@ export class Game {
           const v = body.getLinearVelocity();
 
           const speed2 = Math.max(v.length() * 0.65, 6);
-          
           const newV = toward.scale(speed2);
 
           newV.y = Math.max(v.y, 1.0);
@@ -1299,19 +1294,17 @@ export class Game {
       }
 
       if (age > 8.0 || p.y < this.baseY - 5) {
-  // ✅ if it was hit and never crossed boundary -> 1 run
-  if (!this.gameOver && this.wasHitThisDelivery && !this.boundaryScored) {
-    this.addRuns(1, "RUN");
-  }
+        if (!this.gameOver && this.wasHitThisDelivery && !this.boundaryScored) {
+          this.addRuns(1, "RUN");
+        }
 
-  if (this.ballObserver) {
-    scene.onBeforeRenderObservable.remove(this.ballObserver);
-    this.ballObserver = null;
-  }
-  this.disposeBall();
-  if (!this.gameOver) this.updateScoreboard("Next ball...");
-}
-
+        if (this.ballObserver) {
+          scene.onBeforeRenderObservable.remove(this.ballObserver);
+          this.ballObserver = null;
+        }
+        this.disposeBall();
+        if (!this.gameOver) this.updateScoreboard("Next ball...");
+      }
     });
   }
 
