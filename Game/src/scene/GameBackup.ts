@@ -185,6 +185,52 @@ export class Game {
     return Math.max(min, Math.min(max, v));
   }
 
+  // =========================================================
+// ✅ PITCH CLAMP HELPERS (keeps bounce inside PitchL/R + Start/End)
+// =========================================================
+private getPitchBasis() {
+  const S = this.worldPos(this.pitchStart);
+  const E = this.worldPos(this.pitchEnd);
+  const L = this.worldPos(this.pitchL);
+  const R = this.worldPos(this.pitchR);
+
+  const forward = E.subtract(S).normalize();     // along pitch length
+  const side = R.subtract(L).normalize();        // across pitch width
+
+  const length = E.subtract(S).length();
+  const width = R.subtract(L).length();
+
+  const center = S.add(E).scale(0.5);
+
+  return { S, E, L, R, forward, side, length, width, center };
+}
+
+/**
+ * Clamp a point into pitch rectangle:
+ * - along forward axis: [0..length]
+ * - along side axis: [-width/2 .. +width/2]
+ */
+private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
+  const { S, forward, side, length, width } = this.getPitchBasis();
+
+  // local coordinates relative to PitchStart
+  const rel = p.subtract(S);
+  const u = Vector3.Dot(rel, forward); // 0..length
+  const v = Vector3.Dot(rel, side);    // -width/2 .. +width/2 (approx)
+
+  const halfW = width * 0.5;
+
+  // clamp inside with small margins (prevents touching lines)
+  const uClamped = this.clamp(u, marginLen, length - marginLen);
+  const vClamped = this.clamp(v, -halfW + marginSide, halfW - marginSide);
+
+  // rebuild world point
+  const out = S.add(forward.scale(uClamped)).add(side.scale(vClamped));
+  out.y = this.baseY + 0.005;
+  return out;
+}
+
+
   private distPointToSegment(p: Vector3, a: Vector3, b: Vector3) {
     const ab = b.subtract(a);
     const ap = p.subtract(a);
@@ -837,10 +883,10 @@ export class Game {
     const batRes = await SceneLoader.ImportMeshAsync("", "/models/", "bat2.glb", scene);
     const batRoot = new TransformNode("batRoot", scene);
 
-    const BAT_SCALE = 0.04;
+    const BAT_SCALE = 0.02;
     const BAT_HEIGHT_OFFSET = 0.01;
     const BAT_TILT_X = -Math.PI / 30;
-    const BAT_ROLL_Z = 0.28;
+    const BAT_ROLL_Z = 0.68;
 
     this.batRoot = batRoot;
 
@@ -1196,11 +1242,18 @@ export class Game {
     bouncePoint = bouncePoint.add(pitchSide.scale(offSideAmount * biasStrength));
 
     const maxLine = Math.max(0.05, Math.min(0.16, pitchWidth * 0.22));
-    const lineJitter = this.rand(-maxLine, maxLine);
+    // const lineJitter = this.rand(-maxLine, maxLine);
+    const lineJitter = this.rand(-maxLine, maxLine) * (isYorker ? 0.6 : 1.0);
     const lengthJitter = isYorker ? this.rand(-0.12, 0.12) : this.rand(-0.35, 0.35);
 
+    // bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
+    // bouncePoint.y = this.baseY + 0.005;
+
     bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
-    bouncePoint.y = this.baseY + 0.005;
+
+// ✅ HARD CLAMP: keep bounce strictly inside the pitch
+bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
+
 
     const ballRadius = 0.012;
     const ball = MeshBuilder.CreateSphere("ball", { diameter: ballRadius * 3, segments: 24 }, scene);
