@@ -194,6 +194,15 @@ export class Game {
     return min + Math.random() * (max - min);
   }
 
+  private assetUrl(rel: string) {
+    // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
+    const base = (import.meta as any).env?.BASE_URL ?? "/";
+    const cleanBase = base.endsWith("/") ? base : base + "/";
+    const cleanRel = rel.replace(/^\/+/, "");
+    return cleanBase + cleanRel;
+  }
+
+
   private clamp(v: number, min: number, max: number) {
     return Math.max(min, Math.min(max, v));
   }
@@ -347,7 +356,7 @@ export class Game {
     el.style.textShadow = "0 6px 24px rgba(0,0,0,0.6)";
 
     // subtle animation using CSS transition
-    el.style.transition = "opacity 140ms ease, transform 180ms ease";
+    el.style.transition = "opacity 240ms ease, transform 280ms ease";
 
     document.body.appendChild(el);
     this.popupEl = el;
@@ -371,7 +380,7 @@ export class Game {
       miss: { border: "rgba(239,68,68,0.55)", bg: "rgba(239,68,68,0.14)" },
       six: { border: "rgba(168,85,247,0.55)", bg: "rgba(168,85,247,0.16)" },
       four: { border: "rgba(59,130,246,0.55)", bg: "rgba(59,130,246,0.16)" },
-      out: { border: "rgba(245,158,11,0.60)", bg: "rgba(245,158,11,0.18)" },
+      out: { border: "rgba(255, 0, 0, 0.6)", bg: "rgba(245, 11, 11, 0.3)" },
       info: { border: "rgba(255,255,255,0.22)", bg: "rgba(0,0,0,0.58)" },
     };
 
@@ -395,8 +404,8 @@ export class Game {
       setTimeout(() => {
         if (!this.popupEl) return;
         this.popupEl.style.display = "none";
-      }, 190);
-    }, 900);
+      }, 390);
+    }, 1900);
   }
 
   // =========================================================
@@ -722,7 +731,7 @@ export class Game {
           minZ = Math.min(minZ, vMin.z);
           maxX = Math.max(maxX, vMax.x);
           maxZ = Math.max(maxZ, vMax.z);
-        } catch {}
+        } catch { }
       }
 
       const cx = (minX + maxX) / 2;
@@ -771,7 +780,7 @@ export class Game {
         const r = bi.boundingSphere.radiusWorld;
         const d = Vector3.Distance(ballPos, c);
         if (d <= r + ballRadius * 1.35) return true;
-      } catch {}
+      } catch { }
     }
     return false;
   }
@@ -802,7 +811,9 @@ export class Game {
 
     // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
     try {
-      const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
+      // const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
+      const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
+
       scene.environmentTexture = hdr;
 
       const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
@@ -824,7 +835,14 @@ export class Game {
     scene.enablePhysics(new Vector3(0, -9.81, 0), plugin);
 
     // ✅ Load stadium
-    const stadium = await SceneLoader.ImportMeshAsync("", "/models/", "cricket3.glb", scene);
+    // const stadium = await SceneLoader.ImportMeshAsync("", "/models/", "cricket3.glb", scene);
+    const stadium = await SceneLoader.ImportMeshAsync(
+      "",
+      this.assetUrl("models/"),
+      "cricket3.glb",
+      scene
+    );
+
 
     stadium.meshes.forEach((m) => {
       const n = (m.name || "").toLowerCase();
@@ -1016,7 +1034,14 @@ export class Game {
     pickPlane.rotation.y = Math.atan2(pitchForward.x, pitchForward.z);
     this.pickPlane = pickPlane;
 
-    const batRes = await SceneLoader.ImportMeshAsync("", "/models/", "bat2.glb", scene);
+    // const batRes = await SceneLoader.ImportMeshAsync("", "/models/", "bat2.glb", scene);
+    const batRes = await SceneLoader.ImportMeshAsync(
+      "",
+      this.assetUrl("models/"),
+      "bat2.glb",
+      scene
+    );
+
     const batRoot = new TransformNode("batRoot", scene);
 
     const BAT_SCALE = 0.02;
@@ -1085,15 +1110,15 @@ export class Game {
     scene.onDisposeObservable.add(() => {
       try {
         scene.onPointerObservable.remove(pointerObs);
-      } catch {}
+      } catch { }
       try {
         pickPlane.dispose();
-      } catch {}
+      } catch { }
       try {
         batRes.meshes.forEach((m) => m?.dispose?.());
         batRes.transformNodes.forEach((t) => t?.dispose?.());
         batRoot.dispose();
-      } catch {}
+      } catch { }
     });
 
     scene.onBeforeRenderObservable.add(() => {
@@ -1303,7 +1328,7 @@ export class Game {
           const maxDim = Math.max(size.x, size.y, size.z) * 2;
           if (maxDim > this.pitchLen * 6) return false;
         }
-      } catch {}
+      } catch { }
 
       return true;
     });
@@ -1311,7 +1336,7 @@ export class Game {
     candidates.forEach((m) => {
       try {
         new PhysicsAggregate(m, PhysicsShapeType.MESH, { mass: 0, friction: 0.95, restitution: 0.02 }, scene);
-      } catch {}
+      } catch { }
     });
   }
 
@@ -1577,10 +1602,10 @@ export class Game {
     }
     try {
       this.activeBallAgg?.dispose();
-    } catch {}
+    } catch { }
     try {
       this.activeBall?.dispose();
-    } catch {}
+    } catch { }
     this.activeBall = null;
     this.activeBallAgg = null;
 

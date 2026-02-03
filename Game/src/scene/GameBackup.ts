@@ -17,6 +17,7 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color4, Color3 } from "@babylonjs/core/Maths/math.color";
+import { Scalar } from "@babylonjs/core/Maths/math.scalar";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
@@ -43,6 +44,16 @@ export class Game {
   private engine: Engine;
   private canvas: HTMLCanvasElement;
 
+  // ✅ Camera
+  private camera: UniversalCamera | null = null;
+
+  // ✅ Follow-ball camera flags
+  private camFollowBall = false;
+  private camFollowStartAt = 0;
+  private CAM_FOLLOW_DURATION_MS = 1800; // tune
+  private CAM_TARGET_LERP = 0.16; // tune
+  private camTargetSmoothed = new Vector3(0, 0, 0);
+
   // ✅ Required points (from cricket3.glb)
   private ballRelease!: TransformNode;
   private batsmanPoint!: TransformNode;
@@ -61,6 +72,10 @@ export class Game {
   private countdownEl: HTMLDivElement | null = null;
   private countdownTimer: any = null;
 
+  // ✅ BIG BOTTOM POP TEXT (Hit / Miss / SIX / FOUR / OUT)
+  private popupEl: HTMLDivElement | null = null;
+  private popupTimer: any = null;
+
   // Imported meshes (collidable candidates)
   private stadiumMeshes: AbstractMesh[] = [];
 
@@ -77,8 +92,6 @@ export class Game {
   private BAT_LOFT_BASE = 20.6;
   private BAT_LOFT_MAX = 60.8;
 
-  // ⚠️ NOTE: timingScore in this code is 0..1, so SIX_TIMING_MIN must be <= 1.
-  // Your old value (1.68) makes SIX gate impossible. Fixing it here.
   private SIX_TIMING_MIN = 0.88; // must be almost perfect (0..1)
   private SIX_ALIGN_MIN = 0.75;
   private SIX_SWING_SPEED_MIN = 8.0;
@@ -181,55 +194,56 @@ export class Game {
     return min + Math.random() * (max - min);
   }
 
+  
+
   private clamp(v: number, min: number, max: number) {
     return Math.max(min, Math.min(max, v));
   }
 
   // =========================================================
-// ✅ PITCH CLAMP HELPERS (keeps bounce inside PitchL/R + Start/End)
-// =========================================================
-private getPitchBasis() {
-  const S = this.worldPos(this.pitchStart);
-  const E = this.worldPos(this.pitchEnd);
-  const L = this.worldPos(this.pitchL);
-  const R = this.worldPos(this.pitchR);
+  // ✅ PITCH CLAMP HELPERS (keeps bounce inside PitchL/R + Start/End)
+  // =========================================================
+  private getPitchBasis() {
+    const S = this.worldPos(this.pitchStart);
+    const E = this.worldPos(this.pitchEnd);
+    const L = this.worldPos(this.pitchL);
+    const R = this.worldPos(this.pitchR);
 
-  const forward = E.subtract(S).normalize();     // along pitch length
-  const side = R.subtract(L).normalize();        // across pitch width
+    const forward = E.subtract(S).normalize(); // along pitch length
+    const side = R.subtract(L).normalize(); // across pitch width
 
-  const length = E.subtract(S).length();
-  const width = R.subtract(L).length();
+    const length = E.subtract(S).length();
+    const width = R.subtract(L).length();
 
-  const center = S.add(E).scale(0.5);
+    const center = S.add(E).scale(0.5);
 
-  return { S, E, L, R, forward, side, length, width, center };
-}
+    return { S, E, L, R, forward, side, length, width, center };
+  }
 
-/**
- * Clamp a point into pitch rectangle:
- * - along forward axis: [0..length]
- * - along side axis: [-width/2 .. +width/2]
- */
-private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
-  const { S, forward, side, length, width } = this.getPitchBasis();
+  /**
+   * Clamp a point into pitch rectangle:
+   * - along forward axis: [0..length]
+   * - along side axis: [-width/2 .. +width/2]
+   */
+  private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
+    const { S, forward, side, length, width } = this.getPitchBasis();
 
-  // local coordinates relative to PitchStart
-  const rel = p.subtract(S);
-  const u = Vector3.Dot(rel, forward); // 0..length
-  const v = Vector3.Dot(rel, side);    // -width/2 .. +width/2 (approx)
+    // local coordinates relative to PitchStart
+    const rel = p.subtract(S);
+    const u = Vector3.Dot(rel, forward); // 0..length
+    const v = Vector3.Dot(rel, side); // -width/2 .. +width/2 (approx)
 
-  const halfW = width * 0.5;
+    const halfW = width * 0.5;
 
-  // clamp inside with small margins (prevents touching lines)
-  const uClamped = this.clamp(u, marginLen, length - marginLen);
-  const vClamped = this.clamp(v, -halfW + marginSide, halfW - marginSide);
+    // clamp inside with small margins (prevents touching lines)
+    const uClamped = this.clamp(u, marginLen, length - marginLen);
+    const vClamped = this.clamp(v, -halfW + marginSide, halfW - marginSide);
 
-  // rebuild world point
-  const out = S.add(forward.scale(uClamped)).add(side.scale(vClamped));
-  out.y = this.baseY + 0.005;
-  return out;
-}
-
+    // rebuild world point
+    const out = S.add(forward.scale(uClamped)).add(side.scale(vClamped));
+    out.y = this.baseY + 0.005;
+    return out;
+  }
 
   private distPointToSegment(p: Vector3, a: Vector3, b: Vector3) {
     const ab = b.subtract(a);
@@ -297,6 +311,94 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
       }
     `;
     document.head.appendChild(style);
+  }
+
+  // =========================================================
+  // ✅ BIG BOTTOM POP TEXT (Hit / Miss / SIX / FOUR / OUT)
+  // =========================================================
+  private ensurePopup() {
+    if (this.popupEl) return;
+
+    const el = document.createElement("div");
+    el.id = "cricket-popup";
+    el.style.position = "fixed";
+    el.style.left = "50%";
+    el.style.top = "24px";
+    el.style.transform = "translateX(-50%) translateY(18px)";
+    el.style.zIndex = "10080";
+    el.style.pointerEvents = "none";
+    el.style.opacity = "0";
+    el.style.display = "none";
+
+    el.style.padding = "12px 20px";
+    el.style.borderRadius = "1px";
+    el.style.border = "1px solid rgba(255, 255, 255, 0)";
+    el.style.background = "rgba(0,0,0,0.58)";
+    el.style.backdropFilter = "blur(2px)";
+    el.style.boxShadow = "0 26px 80px rgba(0, 0, 0, 0.21)";
+
+    el.style.color = "#fff";
+    el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    el.style.fontWeight = "1000";
+    el.style.letterSpacing = "1px";
+    el.style.textAlign = "center";
+    el.style.fontSize = "32px";
+    el.style.textTransform = "uppercase";
+    el.style.userSelect = "none";
+    el.style.whiteSpace = "nowrap";
+    el.style.textShadow = "0 6px 24px rgba(0,0,0,0.6)";
+
+    // subtle animation using CSS transition
+    el.style.transition = "opacity 240ms ease, transform 280ms ease";
+
+    document.body.appendChild(el);
+    this.popupEl = el;
+  }
+
+  private popText(text: string, variant: "hit" | "miss" | "six" | "four" | "out" | "info" = "info") {
+    this.ensurePopup();
+    if (!this.popupEl) return;
+
+    if (this.popupTimer) {
+      clearTimeout(this.popupTimer);
+      this.popupTimer = null;
+    }
+
+    const el = this.popupEl;
+    el.innerText = text;
+
+    // color accents per type (kept simple, no extra CSS files)
+    const stylesByVariant: Record<string, { border: string; bg: string }> = {
+      hit: { border: "rgba(34,197,94,0.55)", bg: "rgba(16,185,129,0.18)" },
+      miss: { border: "rgba(239,68,68,0.55)", bg: "rgba(239,68,68,0.14)" },
+      six: { border: "rgba(168,85,247,0.55)", bg: "rgba(168,85,247,0.16)" },
+      four: { border: "rgba(59,130,246,0.55)", bg: "rgba(59,130,246,0.16)" },
+      out: { border: "rgba(255, 0, 0, 0.6)", bg: "rgba(245, 11, 11, 0.3)" },
+      info: { border: "rgba(255,255,255,0.22)", bg: "rgba(0,0,0,0.58)" },
+    };
+
+    const s = stylesByVariant[variant] ?? stylesByVariant.info;
+    el.style.border = `1px solid ${s.border}`;
+    el.style.background = s.bg;
+
+    el.style.display = "block";
+
+    // trigger animation frame
+    requestAnimationFrame(() => {
+      el.style.opacity = "1";
+      el.style.transform = "translateX(-50%) translateY(0px)";
+    });
+
+    // auto hide
+    this.popupTimer = setTimeout(() => {
+      if (!this.popupEl) return;
+      this.popupEl.style.opacity = "0";
+      this.popupEl.style.transform = "translateX(-50%) translateY(18px)";
+      setTimeout(() => {
+        if (!this.popupEl) return;
+        this.popupEl.style.display = "none";
+      }, 390);
+    }, 1900);
   }
 
   // =========================================================
@@ -445,6 +547,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
     this.nextDeliveryAt = performance.now() + 150;
     this.updateScoreboard("PLAY!");
+    this.popText("PLAY!", "info");
   }
 
   // =========================================================
@@ -513,6 +616,9 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     this.lastHitAt = 0;
     this.hitMinY = Number.POSITIVE_INFINITY;
 
+    // ✅ stop camera follow
+    this.camFollowBall = false;
+
     if (this.scene && this.ballObserver) {
       this.scene.onBeforeRenderObservable.remove(this.ballObserver);
       this.ballObserver = null;
@@ -520,6 +626,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
     this.disposeBall();
     this.showPlayAgain(false);
+    this.popText("READY", "info");
     this.startMatchWithDelay();
   }
 
@@ -527,6 +634,11 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     if (this.gameOver) return;
     this.runs += amount;
     this.updateScoreboard(`${reason} (+${amount})`);
+
+    // ✅ popup for FOUR/SIX
+    if (amount === 6) this.popText("SIX!", "six");
+    else if (amount === 4) this.popText("FOUR!", "four");
+    else this.popText(`+${amount}`, "info");
   }
 
   private setOut(reason = "OUT!") {
@@ -535,12 +647,16 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
     this.nextDeliveryAt = Number.POSITIVE_INFINITY;
 
+    // ✅ stop camera follow
+    this.camFollowBall = false;
+
     if (this.scene && this.ballObserver) {
       this.scene.onBeforeRenderObservable.remove(this.ballObserver);
       this.ballObserver = null;
     }
 
     this.updateScoreboard(reason);
+    this.popText("OUT!", "out");
     this.showPlayAgain(true);
   }
 
@@ -675,6 +791,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     this.ensureScoreboard();
     this.ensurePlayAgainButton();
     this.ensureCountdown();
+    this.ensurePopup();
     this.showPlayAgain(false);
 
     scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
@@ -685,7 +802,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     const sun = new DirectionalLight("sun", new Vector3(-0.35, -1, -0.25), scene);
     sun.intensity = 2.0;
 
-    // ✅ HDR
+    // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
     try {
       const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
       scene.environmentTexture = hdr;
@@ -700,6 +817,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
       scene.imageProcessingConfiguration.contrast = 1.08;
     } catch (e) {
       console.warn("HDR failed to load:", e);
+      scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
     }
 
     // ✅ Havok Physics
@@ -791,6 +909,8 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
       scene
     );
 
+    this.camera = camera;
+
     camera.fov = 1.2; // radians
     camera.minZ = 0.03;
     camera.speed = 0;
@@ -799,8 +919,9 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
     // aim slightly above the pitch start
     camera.setTarget(new Vector3(pitchStartPos.x, this.baseY + eyeHeight, pitchStartPos.z));
+    this.camTargetSmoothed.copyFrom(camera.getTarget());
 
-    // ✅ IMPORTANT: keep the SAME camDir logic every frame
+    // ✅ IMPORTANT: keep the SAME camDir logic every frame + follow-ball target after hit
     scene.onBeforeRenderObservable.add(() => {
       if (this.gameOver) return;
 
@@ -809,11 +930,33 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
       const fwd = ps.subtract(bw).normalize();
       const side = this.worldPos(this.pitchR).subtract(this.worldPos(this.pitchL)).normalize();
-
       const dir = fwd.add(side.scale(sideOffset)).normalize();
 
+      // keep broadcast camera position
       camera.position.copyFrom(new Vector3(bw.x, this.baseY + eyeHeight, bw.z).subtract(dir.scale(eyeBack)));
-      camera.setTarget(new Vector3(ps.x, this.baseY + eyeHeight, ps.z));
+
+      // default target = pitch start
+      let desiredTarget = new Vector3(ps.x, this.baseY + eyeHeight, ps.z);
+
+      // ✅ follow ball after hit for some time
+      if (this.camFollowBall && this.activeBall) {
+        const now = performance.now();
+        if (now - this.camFollowStartAt <= this.CAM_FOLLOW_DURATION_MS) {
+          const bp = this.activeBall.getAbsolutePosition();
+          desiredTarget = new Vector3(bp.x, bp.y + 0.08, bp.z);
+        } else {
+          this.camFollowBall = false;
+        }
+      } else {
+        this.camFollowBall = false;
+      }
+
+      // smooth target lerp
+      this.camTargetSmoothed.x = Scalar.Lerp(this.camTargetSmoothed.x, desiredTarget.x, this.CAM_TARGET_LERP);
+      this.camTargetSmoothed.y = Scalar.Lerp(this.camTargetSmoothed.y, desiredTarget.y, this.CAM_TARGET_LERP);
+      this.camTargetSmoothed.z = Scalar.Lerp(this.camTargetSmoothed.z, desiredTarget.z, this.CAM_TARGET_LERP);
+
+      camera.setTarget(this.camTargetSmoothed);
     });
 
     // ✅ Post FX pipeline
@@ -845,12 +988,7 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     const wicketBox = MeshBuilder.CreateBox("WicketTargetCollider", { width: 0.4, height: 1.0, depth: 0.2 }, scene);
     wicketBox.position = wicket.clone().add(new Vector3(0, 0.5, 0));
     wicketBox.isVisible = false;
-    new PhysicsAggregate(
-      wicketBox,
-      PhysicsShapeType.BOX,
-      { mass: 0, friction: 0.9, restitution: 0.05 },
-      scene
-    );
+    new PhysicsAggregate(wicketBox, PhysicsShapeType.BOX, { mass: 0, friction: 0.9, restitution: 0.05 }, scene);
 
     this.updateScoreboard("Ready");
     this.startDeliveries(scene, { intervalMs: 5300 });
@@ -967,9 +1105,12 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
 
       if (this.isSwinging && now > this.swingUntil) {
         this.isSwinging = false;
+
+        // ✅ MISS popup
         if (!this.gameOver && this.pendingMissForThisSwing && !this.swingConsumedHit) {
           this.misses += 1;
           this.updateScoreboard("Missed!");
+          this.popText("MISS!", "miss");
         }
         this.pendingMissForThisSwing = false;
       }
@@ -1032,6 +1173,9 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
           this.swingConsumedHit = true;
           this.pendingMissForThisSwing = false;
 
+          // ✅ HIT popup
+          this.popText("HIT!", "hit");
+
           if (!this.wasHitThisDelivery) {
             this.wasHitThisDelivery = true;
             this.hits += 1;
@@ -1039,6 +1183,10 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
           }
 
           this.ballWasHit = true;
+
+          // ✅ CAMERA: follow ball after hit
+          this.camFollowBall = true;
+          this.camFollowStartAt = performance.now();
 
           // ✅ FIX: reset hit tracking for accurate 4/6
           this.lastHitAt = performance.now();
@@ -1216,6 +1364,9 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     this.lastHitAt = 0;
     this.hitMinY = Number.POSITIVE_INFINITY;
 
+    // ✅ reset camera follow for new delivery
+    this.camFollowBall = false;
+
     this.balls += 1;
     this.updateScoreboard("Ball delivered");
 
@@ -1242,18 +1393,13 @@ private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     bouncePoint = bouncePoint.add(pitchSide.scale(offSideAmount * biasStrength));
 
     const maxLine = Math.max(0.05, Math.min(0.16, pitchWidth * 0.22));
-    // const lineJitter = this.rand(-maxLine, maxLine);
     const lineJitter = this.rand(-maxLine, maxLine) * (isYorker ? 0.6 : 1.0);
     const lengthJitter = isYorker ? this.rand(-0.12, 0.12) : this.rand(-0.35, 0.35);
 
-    // bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
-    // bouncePoint.y = this.baseY + 0.005;
-
     bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
 
-// ✅ HARD CLAMP: keep bounce strictly inside the pitch
-bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
-
+    // ✅ HARD CLAMP: keep bounce strictly inside the pitch
+    bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
 
     const ballRadius = 0.012;
     const ball = MeshBuilder.CreateSphere("ball", { diameter: ballRadius * 3, segments: 24 }, scene);
@@ -1269,12 +1415,7 @@ bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
     this.prevInsideBoundary = this.isInsideBoundary(ball.position);
 
     const restitution = this.rand(0.12, 0.35);
-    const ballAgg = new PhysicsAggregate(
-      ball,
-      PhysicsShapeType.SPHERE,
-      { mass: 0.156, friction: 0.28, restitution },
-      scene
-    );
+    const ballAgg = new PhysicsAggregate(ball, PhysicsShapeType.SPHERE, { mass: 0.156, friction: 0.28, restitution }, scene);
 
     const body = ballAgg.body;
     body.setLinearDamping(0.01);
@@ -1317,6 +1458,7 @@ bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
       // ✅ OUT (delay prevents instant out)
       if (age > 0.25 && this.checkWicketHit(p, ballRadius)) {
         this.setOut("OUT! Wicket hit");
+        // setOut already pops OUT
         return;
       }
 
@@ -1443,6 +1585,9 @@ bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
     } catch {}
     this.activeBall = null;
     this.activeBallAgg = null;
+
+    // ✅ stop follow if ball gone
+    this.camFollowBall = false;
   }
 
   // =========================================================
