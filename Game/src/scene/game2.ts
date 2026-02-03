@@ -71,15 +71,17 @@ export class Game {
   // =========================================================
   // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
   // =========================================================
-  private BAT_BASE_POWER = 2.2;
-  private BAT_MAX_POWER = 10.5;
+  private BAT_BASE_POWER = 20.2;
+  private BAT_MAX_POWER = 40;
 
-  private BAT_LOFT_BASE = 0.6;
-  private BAT_LOFT_MAX = 3.8;
+  private BAT_LOFT_BASE = 20.6;
+  private BAT_LOFT_MAX = 60.8;
 
-  private SIX_TIMING_MIN = 0.68; // must be almost perfect
+  // ⚠️ NOTE: timingScore in this code is 0..1, so SIX_TIMING_MIN must be <= 1.
+  // Your old value (1.68) makes SIX gate impossible. Fixing it here.
+  private SIX_TIMING_MIN = 0.88; // must be almost perfect (0..1)
   private SIX_ALIGN_MIN = 0.75;
-  private SIX_SWING_SPEED_MIN = 1.0;
+  private SIX_SWING_SPEED_MIN = 8.0;
 
   // Scheduler
   private deliveryIntervalMs = 2300;
@@ -154,6 +156,13 @@ export class Game {
   private wasHitThisDelivery = false;
   private pendingMissForThisSwing = false;
 
+  // =========================================================
+  // ✅ FIX FOR WRONG 4/6 (prevents hit-assist from counting as bounce)
+  // =========================================================
+  private lastHitAt = 0;
+  private hitMinY = Number.POSITIVE_INFINITY;
+  private HIT_GROUND_GRACE_MS = 220;
+
   constructor(engine: Engine, canvas: HTMLCanvasElement) {
     this.engine = engine;
     this.canvas = canvas;
@@ -175,6 +184,52 @@ export class Game {
   private clamp(v: number, min: number, max: number) {
     return Math.max(min, Math.min(max, v));
   }
+
+  // =========================================================
+// ✅ PITCH CLAMP HELPERS (keeps bounce inside PitchL/R + Start/End)
+// =========================================================
+private getPitchBasis() {
+  const S = this.worldPos(this.pitchStart);
+  const E = this.worldPos(this.pitchEnd);
+  const L = this.worldPos(this.pitchL);
+  const R = this.worldPos(this.pitchR);
+
+  const forward = E.subtract(S).normalize();     // along pitch length
+  const side = R.subtract(L).normalize();        // across pitch width
+
+  const length = E.subtract(S).length();
+  const width = R.subtract(L).length();
+
+  const center = S.add(E).scale(0.5);
+
+  return { S, E, L, R, forward, side, length, width, center };
+}
+
+/**
+ * Clamp a point into pitch rectangle:
+ * - along forward axis: [0..length]
+ * - along side axis: [-width/2 .. +width/2]
+ */
+private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
+  const { S, forward, side, length, width } = this.getPitchBasis();
+
+  // local coordinates relative to PitchStart
+  const rel = p.subtract(S);
+  const u = Vector3.Dot(rel, forward); // 0..length
+  const v = Vector3.Dot(rel, side);    // -width/2 .. +width/2 (approx)
+
+  const halfW = width * 0.5;
+
+  // clamp inside with small margins (prevents touching lines)
+  const uClamped = this.clamp(u, marginLen, length - marginLen);
+  const vClamped = this.clamp(v, -halfW + marginSide, halfW - marginSide);
+
+  // rebuild world point
+  const out = S.add(forward.scale(uClamped)).add(side.scale(vClamped));
+  out.y = this.baseY + 0.005;
+  return out;
+}
+
 
   private distPointToSegment(p: Vector3, a: Vector3, b: Vector3) {
     const ab = b.subtract(a);
@@ -253,18 +308,18 @@ export class Game {
     const el = document.createElement("div");
     el.id = "cricket-scoreboard";
     el.style.position = "fixed";
-    el.style.left = "14px";
+    el.style.right = "38px";
     el.style.top = "14px";
     el.style.zIndex = "9999";
     el.style.pointerEvents = "none";
     el.style.padding = "10px 12px";
-    el.style.borderRadius = "14px";
-    el.style.border = "1px solid rgba(255,255,255,0.18)";
-    el.style.background = "rgba(0,0,0,0.45)";
-    el.style.backdropFilter = "blur(10px)";
-    el.style.color = "#fff";
+    el.style.borderRadius = "1px";
+    el.style.border = "1px solid rgba(255, 98, 0, 0.18)";
+    el.style.background = "rgba(193, 71, 0, 0.75)";
+    el.style.backdropFilter = "blur(0px)";
+    el.style.color = "#ffffff";
     el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    el.style.fontWeight = "800";
+    el.style.fontWeight = "400";
     el.style.fontSize = "13px";
     el.style.lineHeight = "1.25";
     el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.35)";
@@ -281,9 +336,9 @@ export class Game {
       `<span style="
         display:inline-block;
         padding:2px 8px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,0.22);
-        background:rgba(255,255,255,0.08);
+        border-radius:0px;
+        border:1px solid rgba(255, 89, 0, 0.22);
+        background:rgba(255, 165, 119, 0.08);
         font-size:11px;
         font-weight:900;
         letter-spacing:0.3px;
@@ -322,9 +377,9 @@ export class Game {
     el.style.display = "none";
 
     el.style.padding = "16px 22px";
-    el.style.borderRadius = "18px";
+    el.style.borderRadius = "1px";
     el.style.border = "1px solid rgba(255,255,255,0.22)";
-    el.style.background = "rgba(0,0,0,0.55)";
+    el.style.background = "rgba(36, 218, 0, 0.25)";
     el.style.backdropFilter = "blur(14px)";
     el.style.boxShadow = "0 26px 80px rgba(0,0,0,0.55)";
     el.style.color = "#fff";
@@ -410,10 +465,10 @@ export class Game {
     btn.style.pointerEvents = "auto";
 
     btn.style.padding = "14px 18px";
-    btn.style.borderRadius = "16px";
+    btn.style.borderRadius = "1px";
     btn.style.border = "1px solid rgba(255,255,255,0.25)";
-    btn.style.background = "rgba(0,0,0,0.55)";
-    btn.style.backdropFilter = "blur(14px)";
+    btn.style.background = "rgba(255, 85, 0, 0.55)";
+    btn.style.backdropFilter = "blur(5px)";
     btn.style.color = "#fff";
     btn.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
     btn.style.fontWeight = "950";
@@ -453,6 +508,10 @@ export class Game {
     this.pendingMissForThisSwing = false;
     this.isSwinging = false;
     this.swingConsumedHit = false;
+
+    // ✅ reset hit tracking
+    this.lastHitAt = 0;
+    this.hitMinY = Number.POSITIVE_INFINITY;
 
     if (this.scene && this.ballObserver) {
       this.scene.onBeforeRenderObservable.remove(this.ballObserver);
@@ -707,28 +766,52 @@ export class Game {
     this.setupBoundaryAndWickets(scene);
     this.createEnvironmentColliders(scene);
 
-    // ✅ Camera
-    const lookDir = pitchStart.subtract(batsman).normalize();
-    const eyeHeight = 0.2;
-    const eyeBack = 0.4;
+    // ✅ Camera (locked broadcast + side offset)
+    const pitchStartPos = this.worldPos(this.pitchStart);
+    const batsmanPos = this.worldPos(this.batsmanPoint);
+
+    // forward direction (batsman -> pitchStart)
+    const lookDir = pitchStartPos.subtract(batsmanPos).normalize();
+
+    // side direction (pitchL -> pitchR)
+    const pitchSide = this.worldPos(this.pitchR).subtract(this.worldPos(this.pitchL)).normalize();
+
+    // -------- TUNE THESE 3 VALUES ----------
+    const eyeHeight = 0.3; // up/down
+    const eyeBack = 0.5; // zoom in/out
+    const sideOffset = 0; // left/right (negative = other side)
+    // --------------------------------------
+
+    // final camera direction (forward + side)
+    const camDir = lookDir.add(pitchSide.scale(sideOffset)).normalize();
 
     const camera = new UniversalCamera(
       "cam",
-      new Vector3(batsman.x, this.baseY + eyeHeight, batsman.z).subtract(lookDir.scale(eyeBack)),
+      new Vector3(batsmanPos.x, this.baseY + eyeHeight, batsmanPos.z).subtract(camDir.scale(eyeBack)),
       scene
     );
 
+    camera.fov = 1.2; // radians
     camera.minZ = 0.03;
     camera.speed = 0;
     camera.inertia = 0.7;
     camera.attachControl(this.canvas, true);
-    camera.setTarget(new Vector3(pitchStart.x, this.baseY + eyeHeight, pitchStart.z));
 
+    // aim slightly above the pitch start
+    camera.setTarget(new Vector3(pitchStartPos.x, this.baseY + eyeHeight, pitchStartPos.z));
+
+    // ✅ IMPORTANT: keep the SAME camDir logic every frame
     scene.onBeforeRenderObservable.add(() => {
       if (this.gameOver) return;
+
       const bw = this.worldPos(this.batsmanPoint);
       const ps = this.worldPos(this.pitchStart);
-      const dir = ps.subtract(bw).normalize();
+
+      const fwd = ps.subtract(bw).normalize();
+      const side = this.worldPos(this.pitchR).subtract(this.worldPos(this.pitchL)).normalize();
+
+      const dir = fwd.add(side.scale(sideOffset)).normalize();
+
       camera.position.copyFrom(new Vector3(bw.x, this.baseY + eyeHeight, bw.z).subtract(dir.scale(eyeBack)));
       camera.setTarget(new Vector3(ps.x, this.baseY + eyeHeight, ps.z));
     });
@@ -752,21 +835,22 @@ export class Game {
     if (pipeline.imageProcessing) {
       pipeline.imageProcessing.vignetteEnabled = false;
       pipeline.imageProcessing.contrast = 1.05;
-      pipeline.imageProcessing.exposure = 1.10;
+      pipeline.imageProcessing.exposure = 1.1;
     }
 
     // ✅ Bat
     await this.setupBat3D(scene);
 
     // ✅ Wicket helper collider
-    const wicketBox = MeshBuilder.CreateBox(
-      "WicketTargetCollider",
-      { width: 0.4, height: 1.0, depth: 0.2 },
-      scene
-    );
+    const wicketBox = MeshBuilder.CreateBox("WicketTargetCollider", { width: 0.4, height: 1.0, depth: 0.2 }, scene);
     wicketBox.position = wicket.clone().add(new Vector3(0, 0.5, 0));
     wicketBox.isVisible = false;
-    new PhysicsAggregate(wicketBox, PhysicsShapeType.BOX, { mass: 0, friction: 0.9, restitution: 0.05 }, scene);
+    new PhysicsAggregate(
+      wicketBox,
+      PhysicsShapeType.BOX,
+      { mass: 0, friction: 0.9, restitution: 0.05 },
+      scene
+    );
 
     this.updateScoreboard("Ready");
     this.startDeliveries(scene, { intervalMs: 5300 });
@@ -799,10 +883,10 @@ export class Game {
     const batRes = await SceneLoader.ImportMeshAsync("", "/models/", "bat2.glb", scene);
     const batRoot = new TransformNode("batRoot", scene);
 
-    const BAT_SCALE = 0.03;
-    const BAT_HEIGHT_OFFSET = 0.0;
-    const BAT_TILT_X = -Math.PI / 4;
-    const BAT_ROLL_Z = 0.18;
+    const BAT_SCALE = 0.02;
+    const BAT_HEIGHT_OFFSET = 0.01;
+    const BAT_TILT_X = -Math.PI / 30;
+    const BAT_ROLL_Z = 0.68;
 
     this.batRoot = batRoot;
 
@@ -955,6 +1039,10 @@ export class Game {
           }
 
           this.ballWasHit = true;
+
+          // ✅ FIX: reset hit tracking for accurate 4/6
+          this.lastHitAt = performance.now();
+          this.hitMinY = Number.POSITIVE_INFINITY;
           this.touchedGroundSinceHit = false;
 
           // @ts-ignore
@@ -974,7 +1062,7 @@ export class Game {
           const IDEAL = 0.28;
           const WINDOW = 0.55;
           const timingRaw = 1 - this.clamp(Math.abs(distToBatsman - IDEAL) / WINDOW, 0, 1);
-          const timingScore = timingRaw * timingRaw;
+          const timingScore = timingRaw * timingRaw; // 0..1
 
           // ---- alignment & speed
           const align = this.clamp(Vector3.Dot(batVelDir, dir), 0, 1);
@@ -985,7 +1073,7 @@ export class Game {
           const sweetSpotFactor = 1 - Math.abs(hit.t - 0.5) * 2; // 1 at center, 0 at edges
           const sweet = this.clamp(sweetSpotFactor, 0, 1);
 
-          // ---- harsher timing curve (prevents “every click = six”)
+          // ---- harsher timing curve
           const timingFactor = Math.pow(timingScore, 1.6);
           const alignFactor = this.clamp(align, 0, 1);
 
@@ -993,12 +1081,9 @@ export class Game {
           // ✅ REALISTIC POWER + LOFT + SIX GATE
           // =========================================================
           let power =
-            this.BAT_BASE_POWER +
-            this.BAT_MAX_POWER * timingFactor * sweet * alignFactor * swingFactor;
+            this.BAT_BASE_POWER + this.BAT_MAX_POWER * timingFactor * sweet * alignFactor * swingFactor;
 
-          let loft =
-            this.BAT_LOFT_BASE +
-            this.BAT_LOFT_MAX * timingFactor * sweet * swingFactor;
+          let loft = this.BAT_LOFT_BASE + this.BAT_LOFT_MAX * timingFactor * sweet * swingFactor;
 
           // Penalize mistimed / edge hits heavily
           if (timingScore < 0.35) {
@@ -1127,6 +1212,10 @@ export class Game {
     this.prevInsideBoundary = true;
     this.hitAssistFramesLeft = 0;
 
+    // ✅ reset hit tracking for this delivery
+    this.lastHitAt = 0;
+    this.hitMinY = Number.POSITIVE_INFINITY;
+
     this.balls += 1;
     this.updateScoreboard("Ball delivered");
 
@@ -1153,27 +1242,39 @@ export class Game {
     bouncePoint = bouncePoint.add(pitchSide.scale(offSideAmount * biasStrength));
 
     const maxLine = Math.max(0.05, Math.min(0.16, pitchWidth * 0.22));
-    const lineJitter = this.rand(-maxLine, maxLine);
+    // const lineJitter = this.rand(-maxLine, maxLine);
+    const lineJitter = this.rand(-maxLine, maxLine) * (isYorker ? 0.6 : 1.0);
     const lengthJitter = isYorker ? this.rand(-0.12, 0.12) : this.rand(-0.35, 0.35);
 
+    // bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
+    // bouncePoint.y = this.baseY + 0.005;
+
     bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
-    bouncePoint.y = this.baseY + 0.005;
+
+// ✅ HARD CLAMP: keep bounce strictly inside the pitch
+bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
+
 
     const ballRadius = 0.012;
-    const ball = MeshBuilder.CreateSphere("ball", { diameter: ballRadius * 2, segments: 24 }, scene);
+    const ball = MeshBuilder.CreateSphere("ball", { diameter: ballRadius * 3, segments: 24 }, scene);
 
     const mat = new StandardMaterial("ballMat", scene);
     mat.diffuseColor = new Color3(1, 1, 1);
-    mat.specularColor = new Color3(1, 1, 1);
+    mat.specularColor = new Color3(0, 0, 0);
     mat.specularPower = 192;
-    mat.emissiveColor = new Color3(0.04, 0.02, 0.02);
+    mat.emissiveColor = new Color3(0, 0, 0);
     ball.material = mat;
 
     ball.position.copyFrom(release);
     this.prevInsideBoundary = this.isInsideBoundary(ball.position);
 
     const restitution = this.rand(0.12, 0.35);
-    const ballAgg = new PhysicsAggregate(ball, PhysicsShapeType.SPHERE, { mass: 0.156, friction: 0.28, restitution }, scene);
+    const ballAgg = new PhysicsAggregate(
+      ball,
+      PhysicsShapeType.SPHERE,
+      { mass: 0.156, friction: 0.28, restitution },
+      scene
+    );
 
     const body = ballAgg.body;
     body.setLinearDamping(0.01);
@@ -1181,7 +1282,7 @@ export class Game {
     // @ts-ignore
     body.wakeUp?.();
 
-    const speed = this.rand(2, 39);
+    const speed = this.rand(2, 12);
     const dist = Vector3.Distance(release, bouncePoint);
     const t = this.clamp(dist / speed, 0.25, 1.35);
 
@@ -1221,10 +1322,31 @@ export class Game {
 
       const pitchTouchY = this.baseY + ballRadius * 1.05;
 
+      // =========================================================
+      // ✅ FIX: "REAL" ground touch after hit (prevents false bounce from hit-assist)
+      // =========================================================
       if (this.wasHitThisDelivery) {
-        if (p.y <= pitchTouchY + 0.001) this.touchedGroundSinceHit = true;
+        const sinceHit = performance.now() - this.lastHitAt;
+
+        // track min Y since hit
+        this.hitMinY = Math.min(this.hitMinY, p.y);
+
+        // only allow bounce detection after grace period
+        if (sinceHit > this.HIT_GROUND_GRACE_MS) {
+          const v = body.getLinearVelocity();
+          const nearGround = p.y <= pitchTouchY + 0.0025;
+          const descending = v.y <= 0.15;
+          const dippedLow = this.hitMinY <= pitchTouchY + 0.0025;
+
+          if (nearGround && descending && dippedLow) {
+            this.touchedGroundSinceHit = true;
+          }
+        }
       }
 
+      // =========================================================
+      // ✅ Boundary scoring (SIX if no ground touch since hit)
+      // =========================================================
       if (!this.boundaryScored && this.boundaryRadius > 0.01) {
         const inside = this.isInsideBoundary(p);
         if (this.prevInsideBoundary && !inside) {
