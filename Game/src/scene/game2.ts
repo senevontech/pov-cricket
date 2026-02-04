@@ -196,10 +196,9 @@ export class Game {
 
   private assetUrl(rel: string) {
     // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
-    const base = (import.meta as any).env?.BASE_URL ?? "/";
-    const cleanBase = base.endsWith("/") ? base : base + "/";
+    // Always use absolute /public/ path for assets regardless of BASE_URL
     const cleanRel = rel.replace(/^\/+/, "");
-    return cleanBase + cleanRel;
+    return `/public/${cleanRel}`;
   }
 
 
@@ -391,16 +390,16 @@ export class Game {
     el.style.backdropFilter = "blur(2px)";
     el.style.boxShadow = "0 26px 80px rgba(0, 0, 0, 0.21)";
 
-    el.style.color = "#fff";
+    el.style.color = "#000000";
     el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    el.style.fontWeight = "1000";
+    el.style.fontWeight = "800";
     el.style.letterSpacing = "1px";
     el.style.textAlign = "center";
     el.style.fontSize = "32px";
     el.style.textTransform = "uppercase";
     el.style.userSelect = "none";
     el.style.whiteSpace = "nowrap";
-    el.style.textShadow = "0 6px 24px rgba(0,0,0,0.6)";
+    el.style.textShadow = "0 6px 24px rgba(0, 0, 0, 0)";
 
     // subtle animation using CSS transition
     el.style.transition = "opacity 240ms ease, transform 280ms ease";
@@ -464,13 +463,13 @@ export class Game {
     const el = document.createElement("div");
     el.id = "cricket-scoreboard";
     el.style.position = "fixed";
-    el.style.right = "38px";
+    el.style.right = "15px";
     el.style.top = "14px";
     el.style.zIndex = "9999";
     el.style.pointerEvents = "none";
     el.style.padding = "10px 12px";
     el.style.borderRadius = "1px";
-    el.style.border = "1px solid rgba(255, 98, 0, 0.18)";
+    el.style.border = "3px solid rgb(153, 153, 153)";
     el.style.background = "rgba(193, 71, 0, 0.75)";
     el.style.backdropFilter = "blur(0px)";
     el.style.color = "#ffffff";
@@ -848,7 +847,8 @@ export class Game {
     this.ensurePopup();
     this.showPlayAgain(false);
 
-    scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
+    // Use a lighter clear color as fallback (sky blue instead of near-black)
+    scene.clearColor = new Color4(0.53, 0.71, 0.90, 1); // Light sky blue
 
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), scene);
     hemi.intensity = 1.2;
@@ -886,10 +886,10 @@ const applyFallbackEnv = () => {
   scene.createDefaultEnvironment({
     createSkybox: true,
     skyboxSize: 6000,
-    skyboxColor: new Color3(0.75, 0.82, 0.92),
+    skyboxColor: new Color3(0.75, 0.82, 0.92), // Light sky blue
   });
 
-  scene.environmentIntensity = 1.25;
+  scene.environmentIntensity = 1.5; // Increased from 1.25 for better visibility
 };
 
 const hdrUrl = this.assetUrl("hdr/sky.hdr");

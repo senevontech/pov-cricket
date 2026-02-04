@@ -10,4 +10,8 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ["@babylonjs/havok"],
   },
+  build: {
+    // Ensure public assets are copied correctly
+    copyPublicDir: true,
+  },
 });
