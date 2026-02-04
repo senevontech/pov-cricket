@@ -52,6 +52,15 @@ export class Game {
   private loaderTarget = 0;
   private loaderAnimRaf: number | null = null;
 
+  // ✅ ADD these new fields inside class Game (near other UI fields)
+private mobileHintWrap: HTMLDivElement | null = null;
+private mobileHintShown = false;
+
+
+  // ✅ TOP-LEFT LOGO (mobile responsive)
+  private logoWrap: HTMLDivElement | null = null;
+  private logoImg: HTMLImageElement | null = null;
+
   // ✅ Camera
   private camera: UniversalCamera | null = null;
 
@@ -203,7 +212,7 @@ export class Game {
   }
 
   private assetUrl(rel: string) {
-    // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
+    // rel like: "models/cricket3.glb" or "hdr/sky.hdr" or "ui/logo.png"
     const base = (import.meta as any).env?.BASE_URL ?? "/";
     const cleanBase = base.endsWith("/") ? base : base + "/";
     const cleanRel = rel.replace(/^\/+/, "");
@@ -238,16 +247,18 @@ export class Game {
       return (looksDark || notTransparent) && op > 0;
     };
 
-    // ✅ IMPORTANT: allow loader id so it doesn't get removed
+    // ✅ IMPORTANT: allow loader + logo id so it doesn't get removed
     const allowIds = new Set([
-      "renderCanvas",
-      "cricket-scoreboard",
-      "cricket-play-again",
-      "cricket-countdown",
-      "cricket-popup",
-      "cricket-loader", // ✅ ADD THIS
-      "app",
-    ]);
+  "renderCanvas",
+  "cricket-scoreboard",
+  "cricket-play-again",
+  "cricket-countdown",
+  "cricket-popup",
+  "cricket-loader",
+  "cricket-logo",
+  "cricket-mobile-hint", // ✅ ADD THIS
+  "app",
+]);
 
     const els = Array.from(document.body.querySelectorAll("*"));
     for (const el of els) {
@@ -265,8 +276,6 @@ export class Game {
       hEl.style.pointerEvents = "none";
       hEl.style.backdropFilter = "none";
       hEl.style.filter = "none";
-
-      // console.log("[Curtain removed]", el);
     }
 
     this.canvas.style.filter = "none";
@@ -428,6 +437,166 @@ export class Game {
   }
 
   // =========================================================
+  // ✅ TOP-LEFT LOGO (mobile responsive)
+  // Put your logo file in: /public/ui/logo.png
+  // Then it will load as: this.assetUrl("ui/logo.png")
+  // =========================================================
+  private ensureLogo() {
+    if (this.logoWrap) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "cricket-logo";
+    wrap.style.position = "fixed";
+    wrap.style.left = "max(10px, env(safe-area-inset-left))";
+    wrap.style.top = "max(10px, env(safe-area-inset-top))";
+    wrap.style.zIndex = "10020"; // above canvas, below loader (999999)
+    wrap.style.pointerEvents = "none";
+    wrap.style.userSelect = "none";
+    wrap.style.webkitUserSelect = "none" as any;
+
+    // subtle readable pill (kept minimal)
+    wrap.style.padding = "6px 8px";
+    wrap.style.border = "1px solid rgba(255, 255, 255, 0)";
+    wrap.style.background = "rgba(0, 0, 0, 0)";
+    wrap.style.backdropFilter = "blur(6px)";
+    wrap.style.borderRadius = "0px";
+    wrap.style.boxShadow = "0 14px 40px rgba(0, 0, 0, 0)";
+
+    const img = document.createElement("img");
+    img.alt = "Logo";
+    img.decoding = "async";
+
+    // ✅ change this path if your logo is elsewhere
+    img.src = this.assetUrl("logo/logo.png");
+
+    // ✅ responsive sizing (mobile -> desktop)
+    img.style.width = "clamp(90px, 20vw, 150px)";
+    img.style.height = "auto";
+    img.style.display = "block";
+    img.style.objectFit = "contain";
+
+    // if logo missing, hide silently
+    img.onerror = () => {
+      wrap.style.display = "none";
+    };
+
+    wrap.appendChild(img);
+    document.body.appendChild(wrap);
+
+    this.logoWrap = wrap;
+    this.logoImg = img;
+  }
+
+
+
+  // ✅ ADD this function inside class Game (anywhere with other UI helpers)
+private ensureMobileHint() {
+  if (this.mobileHintWrap) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "cricket-mobile-hint";
+  wrap.style.position = "fixed";
+  wrap.style.inset = "0";
+  wrap.style.zIndex = "100000"; // above everything except loader (999999)
+  wrap.style.display = "none";
+  wrap.style.alignItems = "center";
+  wrap.style.justifyContent = "center";
+  wrap.style.padding = "16px";
+  wrap.style.background = "rgba(0, 0, 0, 0.18)";
+  wrap.style.backdropFilter = "blur(0px)";
+  wrap.style.pointerEvents = "auto";
+
+  const card = document.createElement("div");
+  card.style.width = "min(520px, 92vw)";
+  card.style.border = "1px solid rgba(255, 255, 255, 0)";
+  card.style.background = "rgb(227, 68, 0)";
+  card.style.boxShadow = "0 30px 90px rgba(0, 0, 0, 0)";
+  card.style.padding = "16px 16px";
+  card.style.borderRadius = "1px";
+  card.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  card.style.color = "#fff";
+
+  const title = document.createElement("div");
+  title.innerText = "Heads up!";
+  title.style.fontWeight = "900";
+  title.style.letterSpacing = "0.3px";
+  title.style.fontSize = "16px";
+  title.style.marginBottom = "8px";
+
+  const msg = document.createElement("div");
+  msg.innerText = "The site is experienced best on desktop.";
+  msg.style.opacity = "0.92";
+  msg.style.fontSize = "13px";
+  msg.style.lineHeight = "1.35";
+
+  const actions = document.createElement("div");
+  actions.style.display = "flex";
+  actions.style.justifyContent = "flex-end";
+  actions.style.gap = "10px";
+  actions.style.marginTop = "14px";
+
+  const skip = document.createElement("button");
+  skip.type = "button";
+  skip.innerText = "Skip";
+  skip.style.cursor = "pointer";
+  skip.style.padding = "10px 14px";
+  skip.style.borderRadius = "1px";
+  skip.style.border = "1px solid rgba(255,255,255,0.22)";
+  skip.style.background = "rgba(255,255,255,0.10)";
+  skip.style.color = "#fff";
+  skip.style.fontWeight = "900";
+  skip.style.letterSpacing = "0.4px";
+  skip.style.pointerEvents = "auto";
+
+  const hide = () => {
+    wrap.style.display = "none";
+    this.mobileHintShown = true;
+  };
+
+  // click skip
+  skip.onclick = hide;
+
+  // click outside card => also skip (nice UX)
+  wrap.onclick = (e) => {
+    if (e.target === wrap) hide();
+  };
+
+  // ESC key => skip (if keyboard exists)
+  window.addEventListener("keydown", (e) => {
+    if (wrap.style.display !== "none" && e.key === "Escape") hide();
+  });
+
+  actions.appendChild(skip);
+  card.appendChild(title);
+  card.appendChild(msg);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+
+  document.body.appendChild(wrap);
+  this.mobileHintWrap = wrap;
+}
+
+private isMobileDevice() {
+  const w = window.innerWidth;
+  const coarse = typeof window.matchMedia === "function" ? window.matchMedia("(pointer: coarse)").matches : false;
+  const ua = (navigator.userAgent || "").toLowerCase();
+  const uaMobile = /android|iphone|ipad|ipod|mobile|tablet/.test(ua);
+  // treat <= 900px as mobile-ish (good practical threshold)
+  return w <= 900 || coarse || uaMobile;
+}
+
+private maybeShowMobileHint() {
+  if (this.mobileHintShown) return;
+  this.ensureMobileHint();
+  if (!this.mobileHintWrap) return;
+
+  if (this.isMobileDevice()) {
+    this.mobileHintWrap.style.display = "flex";
+  }
+}
+
+
+  // =========================================================
   // ✅ PITCH CLAMP HELPERS
   // =========================================================
   private getPitchBasis() {
@@ -506,18 +675,23 @@ export class Game {
     }
   }
 
-  private injectAntiOverlayCSS() {
-    const id = "anti-overlay-style";
-    if (document.getElementById(id)) return;
+  // ✅ UPDATE your existing injectAntiOverlayCSS() to include the new id (so it never gets nuked by overlays)
+private injectAntiOverlayCSS() {
+  const id = "anti-overlay-style";
+  if (document.getElementById(id)) return;
 
-    const style = document.createElement("style");
-    style.id = id;
-    style.textContent = `
-      html, body, #app, #renderCanvas { background: transparent !important; margin:0 !important; padding:0 !important; overflow:hidden !important; }
-      body::before, body::after, #app::before, #app::after { content:none !important; display:none !important; opacity:0 !important; }
-    `;
-    document.head.appendChild(style);
-  }
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = `
+    html, body, #app, #renderCanvas { background: transparent !important; margin:0 !important; padding:0 !important; overflow:hidden !important; }
+    body::before, body::after, #app::before, #app::after { content:none !important; display:none !important; opacity:0 !important; }
+
+    /* ✅ ensure hint is always clickable/visible when shown */
+    #cricket-mobile-hint { display:none; }
+  `;
+  document.head.appendChild(style);
+}
+
 
   // =========================================================
   // ✅ POPUP
@@ -986,7 +1160,9 @@ export class Game {
 
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
-    this.killFullscreenCurtains(); // ✅ now loader will NOT be removed
+    this.ensureLogo(); 
+    this.maybeShowMobileHint();
+    this.killFullscreenCurtains();
 
     const scene = new Scene(this.engine);
     this.scene = scene;

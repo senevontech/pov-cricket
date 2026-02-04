@@ -1,4 +1,6 @@
 // src/scene/Game.ts
+import { Sound } from "@babylonjs/core/Audio/sound";
+
 import "@babylonjs/core/Helpers/sceneHelpers";
 import "@babylonjs/core/Rendering/depthRendererSceneComponent";
 
@@ -44,6 +46,13 @@ export class Game {
   private engine: Engine;
   private canvas: HTMLCanvasElement;
 
+  // ✅ SFX
+private sfxBatHit: Sound | null = null;
+private audioUnlocked = false;
+private lastBatHitSfxAt = 0;
+private BAT_HIT_SFX_COOLDOWN_MS = 70; // prevents spam if hit checks fire quickly
+
+
   // ✅ LOADER UI
   private loaderWrap: HTMLDivElement | null = null;
   private loaderBar: HTMLDivElement | null = null;
@@ -51,6 +60,11 @@ export class Game {
   private loaderMsg: HTMLDivElement | null = null;
   private loaderTarget = 0;
   private loaderAnimRaf: number | null = null;
+
+  // ✅ ADD these new fields inside class Game (near other UI fields)
+private mobileHintWrap: HTMLDivElement | null = null;
+private mobileHintShown = false;
+
 
   // ✅ TOP-LEFT LOGO (mobile responsive)
   private logoWrap: HTMLDivElement | null = null;
@@ -244,15 +258,16 @@ export class Game {
 
     // ✅ IMPORTANT: allow loader + logo id so it doesn't get removed
     const allowIds = new Set([
-      "renderCanvas",
-      "cricket-scoreboard",
-      "cricket-play-again",
-      "cricket-countdown",
-      "cricket-popup",
-      "cricket-loader",
-      "cricket-logo", // ✅ ADD THIS
-      "app",
-    ]);
+  "renderCanvas",
+  "cricket-scoreboard",
+  "cricket-play-again",
+  "cricket-countdown",
+  "cricket-popup",
+  "cricket-loader",
+  "cricket-logo",
+  "cricket-mobile-hint", // ✅ ADD THIS
+  "app",
+]);
 
     const els = Array.from(document.body.querySelectorAll("*"));
     for (const el of els) {
@@ -275,6 +290,51 @@ export class Game {
     this.canvas.style.filter = "none";
     (this.canvas.style as any).webkitFilter = "none";
   }
+
+
+  // ✅ unlock browser audio (needed on mobile + some desktop browsers)
+private async unlockAudio() {
+  if (this.audioUnlocked) return;
+  this.audioUnlocked = true;
+
+  try {
+    // Babylon exposes the audio context on Engine.audioEngine
+    const anyEngine: any = this.engine as any;
+    const audioEngine = anyEngine?.audioEngine;
+
+    const ctx: AudioContext | undefined = audioEngine?.audioContext;
+    if (ctx && ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    // also "unlock" Babylon audio engine if available
+    if (audioEngine?.unlock) {
+      await audioEngine.unlock();
+    }
+  } catch (e) {
+    // fail silently (audio just won't play until browser allows it)
+    console.warn("Audio unlock failed:", e);
+  }
+}
+
+private playBatHitSfx(intensity01 = 0.75) {
+  if (!this.sfxBatHit) return;
+
+  const now = performance.now();
+  if (now - this.lastBatHitSfxAt < this.BAT_HIT_SFX_COOLDOWN_MS) return;
+  this.lastBatHitSfxAt = now;
+
+  try {
+    // small variation so it doesn't feel repetitive
+    const vol = 0.35 + 0.65 * this.clamp(intensity01, 0, 1);
+    this.sfxBatHit.setVolume(vol);
+
+    // restart instantly (so repeated hits still play)
+    this.sfxBatHit.stop();
+    this.sfxBatHit.play();
+  } catch {}
+}
+
 
   // =========================================================
   // ✅ LOADER UI
@@ -481,6 +541,115 @@ export class Game {
     this.logoImg = img;
   }
 
+
+
+  // ✅ ADD this function inside class Game (anywhere with other UI helpers)
+private ensureMobileHint() {
+  if (this.mobileHintWrap) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "cricket-mobile-hint";
+  wrap.style.position = "fixed";
+  wrap.style.inset = "0";
+  wrap.style.zIndex = "100000"; // above everything except loader (999999)
+  wrap.style.display = "none";
+  wrap.style.alignItems = "center";
+  wrap.style.justifyContent = "center";
+  wrap.style.padding = "16px";
+  wrap.style.background = "rgba(0, 0, 0, 0.18)";
+  wrap.style.backdropFilter = "blur(0px)";
+  wrap.style.pointerEvents = "auto";
+
+  const card = document.createElement("div");
+  card.style.width = "min(520px, 92vw)";
+  card.style.border = "1px solid rgba(255, 255, 255, 0)";
+  card.style.background = "rgb(227, 68, 0)";
+  card.style.boxShadow = "0 30px 90px rgba(0, 0, 0, 0)";
+  card.style.padding = "16px 16px";
+  card.style.borderRadius = "1px";
+  card.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  card.style.color = "#fff";
+
+  const title = document.createElement("div");
+  title.innerText = "Heads up!";
+  title.style.fontWeight = "900";
+  title.style.letterSpacing = "0.3px";
+  title.style.fontSize = "16px";
+  title.style.marginBottom = "8px";
+
+  const msg = document.createElement("div");
+  msg.innerText = "The site is experienced best on desktop.";
+  msg.style.opacity = "0.92";
+  msg.style.fontSize = "13px";
+  msg.style.lineHeight = "1.35";
+
+  const actions = document.createElement("div");
+  actions.style.display = "flex";
+  actions.style.justifyContent = "flex-end";
+  actions.style.gap = "10px";
+  actions.style.marginTop = "14px";
+
+  const skip = document.createElement("button");
+  skip.type = "button";
+  skip.innerText = "Skip";
+  skip.style.cursor = "pointer";
+  skip.style.padding = "10px 14px";
+  skip.style.borderRadius = "1px";
+  skip.style.border = "1px solid rgba(255,255,255,0.22)";
+  skip.style.background = "rgba(255,255,255,0.10)";
+  skip.style.color = "#fff";
+  skip.style.fontWeight = "900";
+  skip.style.letterSpacing = "0.4px";
+  skip.style.pointerEvents = "auto";
+
+  const hide = () => {
+    wrap.style.display = "none";
+    this.mobileHintShown = true;
+  };
+
+  // click skip
+  skip.onclick = hide;
+
+  // click outside card => also skip (nice UX)
+  wrap.onclick = (e) => {
+    if (e.target === wrap) hide();
+  };
+
+  // ESC key => skip (if keyboard exists)
+  window.addEventListener("keydown", (e) => {
+    if (wrap.style.display !== "none" && e.key === "Escape") hide();
+  });
+
+  actions.appendChild(skip);
+  card.appendChild(title);
+  card.appendChild(msg);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+
+  document.body.appendChild(wrap);
+  this.mobileHintWrap = wrap;
+}
+
+private isMobileDevice() {
+  const w = window.innerWidth;
+  const coarse = typeof window.matchMedia === "function" ? window.matchMedia("(pointer: coarse)").matches : false;
+  const ua = (navigator.userAgent || "").toLowerCase();
+  const uaMobile = /android|iphone|ipad|ipod|mobile|tablet/.test(ua);
+  // treat <= 900px as mobile-ish (good practical threshold)
+  return w <= 900 || coarse || uaMobile;
+}
+
+private maybeShowMobileHint() {
+  if (this.mobileHintShown) return;
+  this.ensureMobileHint();
+  if (!this.mobileHintWrap) return;
+
+  if (this.isMobileDevice()) {
+    this.mobileHintWrap.style.display = "flex";
+  }
+}
+
+
   // =========================================================
   // ✅ PITCH CLAMP HELPERS
   // =========================================================
@@ -560,27 +729,23 @@ export class Game {
     }
   }
 
-  private injectAntiOverlayCSS() {
-    const id = "anti-overlay-style";
-    if (document.getElementById(id)) return;
+  // ✅ UPDATE your existing injectAntiOverlayCSS() to include the new id (so it never gets nuked by overlays)
+private injectAntiOverlayCSS() {
+  const id = "anti-overlay-style";
+  if (document.getElementById(id)) return;
 
-    const style = document.createElement("style");
-    style.id = id;
-    style.textContent = `
-      html, body, #app, #renderCanvas {
-        background: transparent !important;
-        margin:0 !important;
-        padding:0 !important;
-        overflow:hidden !important;
-      }
-      body::before, body::after, #app::before, #app::after {
-        content:none !important;
-        display:none !important;
-        opacity:0 !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = `
+    html, body, #app, #renderCanvas { background: transparent !important; margin:0 !important; padding:0 !important; overflow:hidden !important; }
+    body::before, body::after, #app::before, #app::after { content:none !important; display:none !important; opacity:0 !important; }
+
+    /* ✅ ensure hint is always clickable/visible when shown */
+    #cricket-mobile-hint { display:none; }
+  `;
+  document.head.appendChild(style);
+}
+
 
   // =========================================================
   // ✅ POPUP
@@ -1049,11 +1214,24 @@ export class Game {
 
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
-    this.ensureLogo(); // ✅ ADD LOGO (top-left, responsive)
-    this.killFullscreenCurtains(); // ✅ now loader + logo will NOT be removed
+    this.ensureLogo(); 
+    this.maybeShowMobileHint();
+    this.killFullscreenCurtains();
 
     const scene = new Scene(this.engine);
     this.scene = scene;
+    // ✅ Load SFX (put file in /public/sfx/bat-hit.mp3)
+try {
+  const sfxUrl = this.assetUrl("sfx/bat-hit.mp3") + `?v=${Date.now()}`;
+  this.sfxBatHit = new Sound("batHit", sfxUrl, scene, null, {
+    autoplay: false,
+    loop: false,
+    volume: 0.65,
+  });
+} catch (e) {
+  console.warn("Bat hit sfx load failed:", e);
+}
+
 
     this.ensureScoreboard();
     this.ensurePlayAgainButton();
@@ -1354,10 +1532,13 @@ export class Game {
     this.lastBatT = performance.now();
 
     const pointerObs = scene.onPointerObservable.add((pi) => {
+      
       if (this.gameOver) return;
+       
       if (pi.type === 1) {
         const ev = pi.event as PointerEvent;
         if (ev.button === 0) {
+          this.unlockAudio();
           this.isSwinging = true;
           this.swingStartedAt = performance.now();
           this.swingUntil = performance.now() + 160;
@@ -1455,6 +1636,8 @@ export class Game {
           this.pendingMissForThisSwing = false;
 
           this.popText("HIT!", "hit");
+          const intensity = this.clamp(batVel.length() / 14, 0, 1);
+this.playBatHitSfx(intensity);
 
           if (!this.wasHitThisDelivery) {
             this.wasHitThisDelivery = true;
