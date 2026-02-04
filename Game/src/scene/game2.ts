@@ -44,6 +44,14 @@ export class Game {
   private engine: Engine;
   private canvas: HTMLCanvasElement;
 
+  // ✅ LOADER UI
+  private loaderWrap: HTMLDivElement | null = null;
+  private loaderBar: HTMLDivElement | null = null;
+  private loaderPct: HTMLDivElement | null = null;
+  private loaderMsg: HTMLDivElement | null = null;
+  private loaderTarget = 0;
+  private loaderAnimRaf: number | null = null;
+
   // ✅ Camera
   private camera: UniversalCamera | null = null;
 
@@ -141,66 +149,6 @@ export class Game {
   private hitAssistFramesLeft = 0;
   private hitAssistVel = new Vector3(0, 0, 0);
 
-
-  private killFullscreenCurtains() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-
-  const isFullscreenCover = (el: Element) => {
-    const r = (el as HTMLElement).getBoundingClientRect();
-    return r.width >= w * 0.9 && r.height >= h * 0.9;
-  };
-
-  const isPositionedCover = (cs: CSSStyleDeclaration) =>
-    (cs.position === "fixed" || cs.position === "absolute") &&
-    (cs.inset === "0px" || (cs.top === "0px" && cs.left === "0px"));
-
-  const isVisibleCurtain = (cs: CSSStyleDeclaration) => {
-    const bg = cs.backgroundColor || "";
-    const op = Number(cs.opacity || "1");
-    // detect rgba black-ish backgrounds or any non-transparent bg with opacity < 1
-    const looksDark =
-      bg.includes("rgba") && (bg.includes("0, 0, 0") || bg.includes("0,0,0"));
-    const notTransparent = bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
-    return (looksDark || notTransparent) && op > 0;
-  };
-
-  const allowIds = new Set([
-    "renderCanvas",
-    "cricket-scoreboard",
-    "cricket-play-again",
-    "cricket-countdown",
-    "cricket-popup",
-    "app",
-  ]);
-
-  const els = Array.from(document.body.querySelectorAll("*"));
-  for (const el of els) {
-    const id = (el as HTMLElement).id || "";
-    if (allowIds.has(id)) continue;
-
-    const cs = getComputedStyle(el);
-    if (!isPositionedCover(cs)) continue;
-    if (!isFullscreenCover(el)) continue;
-    if (!isVisibleCurtain(cs)) continue;
-
-    // ✅ Neutralize the curtain
-    const hEl = el as HTMLElement;
-    hEl.style.background = "transparent";
-    hEl.style.opacity = "0";
-    hEl.style.pointerEvents = "none";
-    hEl.style.backdropFilter = "none";
-    hEl.style.filter = "none";
-
-    console.log("[Curtain removed]", el);
-  }
-
-  // also ensure canvas has no css filter
-  this.canvas.style.filter = "none";
-  (this.canvas.style as any).webkitFilter = "none";
-}
-
-
   // =========================================================
   // ✅ SCORING / GAME STATE
   // =========================================================
@@ -262,13 +210,225 @@ export class Game {
     return cleanBase + cleanRel;
   }
 
-
   private clamp(v: number, min: number, max: number) {
     return Math.max(min, Math.min(max, v));
   }
 
   // =========================================================
-  // ✅ PITCH CLAMP HELPERS (keeps bounce inside PitchL/R + Start/End)
+  // ✅ FIX: this function was killing your loader
+  // =========================================================
+  private killFullscreenCurtains() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    const isFullscreenCover = (el: Element) => {
+      const r = (el as HTMLElement).getBoundingClientRect();
+      return r.width >= w * 0.9 && r.height >= h * 0.9;
+    };
+
+    const isPositionedCover = (cs: CSSStyleDeclaration) =>
+      (cs.position === "fixed" || cs.position === "absolute") &&
+      (cs.inset === "0px" || (cs.top === "0px" && cs.left === "0px"));
+
+    const isVisibleCurtain = (cs: CSSStyleDeclaration) => {
+      const bg = cs.backgroundColor || "";
+      const op = Number(cs.opacity || "1");
+      const looksDark = bg.includes("rgba") && (bg.includes("0, 0, 0") || bg.includes("0,0,0"));
+      const notTransparent = bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
+      return (looksDark || notTransparent) && op > 0;
+    };
+
+    // ✅ IMPORTANT: allow loader id so it doesn't get removed
+    const allowIds = new Set([
+      "renderCanvas",
+      "cricket-scoreboard",
+      "cricket-play-again",
+      "cricket-countdown",
+      "cricket-popup",
+      "cricket-loader", // ✅ ADD THIS
+      "app",
+    ]);
+
+    const els = Array.from(document.body.querySelectorAll("*"));
+    for (const el of els) {
+      const id = (el as HTMLElement).id || "";
+      if (allowIds.has(id)) continue;
+
+      const cs = getComputedStyle(el);
+      if (!isPositionedCover(cs)) continue;
+      if (!isFullscreenCover(el)) continue;
+      if (!isVisibleCurtain(cs)) continue;
+
+      const hEl = el as HTMLElement;
+      hEl.style.background = "transparent";
+      hEl.style.opacity = "0";
+      hEl.style.pointerEvents = "none";
+      hEl.style.backdropFilter = "none";
+      hEl.style.filter = "none";
+
+      // console.log("[Curtain removed]", el);
+    }
+
+    this.canvas.style.filter = "none";
+    (this.canvas.style as any).webkitFilter = "none";
+  }
+
+  // =========================================================
+  // ✅ LOADER UI
+  // =========================================================
+  private ensureLoader() {
+    if (this.loaderWrap) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "cricket-loader";
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.zIndex = "999999"; // ✅ higher than everything
+    wrap.style.display = "none";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+    wrap.style.background = "rgb(255, 91, 25)";
+    wrap.style.backdropFilter = "blur(0px)";
+    wrap.style.pointerEvents = "auto";
+
+    const card = document.createElement("div");
+    card.style.width = "min(520px, 92vw)";
+    card.style.border = "1px solid rgb(197, 197, 197)";
+    card.style.background = "rgb(212, 212, 212)";
+    card.style.boxShadow = "0 30px 90px rgba(0, 0, 0, 0.08)";
+    card.style.padding = "18px 18px";
+    card.style.borderRadius = "1px";
+    card.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+    const title = document.createElement("div");
+    title.innerText = "Loading POV-CRICKET…";
+    title.style.color = "#000000";
+    title.style.fontWeight = "700";
+    title.style.letterSpacing = "0.5px";
+    title.style.fontSize = "16px";
+    title.style.marginBottom = "10px";
+
+    const msg = document.createElement("div");
+    msg.innerText = "Preparing assets";
+    msg.style.color = "rgba(0, 0, 0, 0.88)";
+    msg.style.fontSize = "12px";
+    msg.style.marginBottom = "12px";
+    this.loaderMsg = msg;
+
+    const barWrap = document.createElement("div");
+    barWrap.style.height = "5px";
+    barWrap.style.borderRadius = "999px";
+    barWrap.style.overflow = "hidden";
+    barWrap.style.border = "1px solid rgba(255,255,255,0.16)";
+    barWrap.style.background = "rgba(255,255,255,0.08)";
+
+    const bar = document.createElement("div");
+    bar.style.height = "100%";
+    bar.style.width = "0%";
+    bar.style.borderRadius = "999px";
+    bar.style.background = "linear-gradient(90deg, rgba(255,85,0,0.95), rgba(255,170,90,0.95))";
+    bar.style.transition = "width 120ms linear";
+    this.loaderBar = bar;
+
+    barWrap.appendChild(bar);
+
+    const footer = document.createElement("div");
+    footer.style.marginTop = "10px";
+    footer.style.display = "flex";
+    footer.style.alignItems = "center";
+    footer.style.justifyContent = "space-between";
+
+    const pct = document.createElement("div");
+    pct.innerText = "0%";
+    pct.style.color = "rgba(0, 0, 0, 0.92)";
+    pct.style.fontSize = "12px";
+    pct.style.fontWeight = "900";
+    this.loaderPct = pct;
+
+    const hint = document.createElement("div");
+    hint.innerText = "First load may take longer";
+    hint.style.color = "rgba(160, 27, 0, 0.55)";
+    hint.style.fontSize = "12px";
+
+    footer.appendChild(hint);
+    footer.appendChild(pct);
+
+    card.appendChild(title);
+    card.appendChild(msg);
+    card.appendChild(barWrap);
+    card.appendChild(footer);
+
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
+    this.loaderWrap = wrap;
+  }
+
+  private showLoader(msg = "Loading…") {
+    this.ensureLoader();
+    if (!this.loaderWrap) return;
+    this.loaderWrap.style.display = "flex";
+    this.loaderWrap.style.opacity = "1";
+    this.setLoader(0, msg, true);
+  }
+
+  private setLoader(percent: number, msg?: string, immediate = false) {
+    this.ensureLoader();
+    this.loaderTarget = Math.max(0, Math.min(100, percent));
+
+    if (msg && this.loaderMsg) this.loaderMsg.innerText = msg;
+
+    if (immediate && this.loaderBar && this.loaderPct) {
+      this.loaderBar.style.width = `${this.loaderTarget.toFixed(1)}%`;
+      this.loaderPct.innerText = `${Math.round(this.loaderTarget)}%`;
+    }
+
+    if (this.loaderAnimRaf != null) return;
+
+    const tick = () => {
+      this.loaderAnimRaf = null;
+      if (!this.loaderBar || !this.loaderPct) return;
+
+      const cur = parseFloat(this.loaderBar.style.width || "0") || 0;
+      const next = cur + (this.loaderTarget - cur) * 0.18;
+
+      this.loaderBar.style.width = `${next}%`;
+      this.loaderPct.innerText = `${Math.round(next)}%`;
+
+      if (Math.abs(this.loaderTarget - next) > 0.4) {
+        this.loaderAnimRaf = requestAnimationFrame(tick);
+      } else {
+        this.loaderBar.style.width = `${this.loaderTarget}%`;
+        this.loaderPct.innerText = `${Math.round(this.loaderTarget)}%`;
+      }
+    };
+
+    this.loaderAnimRaf = requestAnimationFrame(tick);
+  }
+
+  private async hideLoader() {
+    if (!this.loaderWrap) return;
+    this.setLoader(100, "Done", true);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    this.loaderWrap.style.transition = "opacity 250ms ease";
+    this.loaderWrap.style.opacity = "0";
+
+    await new Promise((r) => setTimeout(r, 280));
+
+    this.loaderWrap.style.display = "none";
+    this.loaderWrap.style.transition = "";
+  }
+
+  private mapProgress(evt: any, fallbackTotalBytes: number) {
+    let p = 0;
+    if (evt && evt.lengthComputable && evt.total > 0) p = evt.loaded / evt.total;
+    else if (evt && typeof evt.loaded === "number") p = Math.min(1, evt.loaded / fallbackTotalBytes);
+    return Math.max(0, Math.min(1, p));
+  }
+
+  // =========================================================
+  // ✅ PITCH CLAMP HELPERS
   // =========================================================
   private getPitchBasis() {
     const S = this.worldPos(this.pitchStart);
@@ -276,8 +436,8 @@ export class Game {
     const L = this.worldPos(this.pitchL);
     const R = this.worldPos(this.pitchR);
 
-    const forward = E.subtract(S).normalize(); // along pitch length
-    const side = R.subtract(L).normalize(); // across pitch width
+    const forward = E.subtract(S).normalize();
+    const side = R.subtract(L).normalize();
 
     const length = E.subtract(S).length();
     const width = R.subtract(L).length();
@@ -287,26 +447,18 @@ export class Game {
     return { S, E, L, R, forward, side, length, width, center };
   }
 
-  /**
-   * Clamp a point into pitch rectangle:
-   * - along forward axis: [0..length]
-   * - along side axis: [-width/2 .. +width/2]
-   */
   private clampPointToPitch(p: Vector3, marginSide = 0.06, marginLen = 0.08) {
     const { S, forward, side, length, width } = this.getPitchBasis();
 
-    // local coordinates relative to PitchStart
     const rel = p.subtract(S);
-    const u = Vector3.Dot(rel, forward); // 0..length
-    const v = Vector3.Dot(rel, side); // -width/2 .. +width/2 (approx)
+    const u = Vector3.Dot(rel, forward);
+    const v = Vector3.Dot(rel, side);
 
     const halfW = width * 0.5;
 
-    // clamp inside with small margins (prevents touching lines)
     const uClamped = this.clamp(u, marginLen, length - marginLen);
     const vClamped = this.clamp(v, -halfW + marginSide, halfW - marginSide);
 
-    // rebuild world point
     const out = S.add(forward.scale(uClamped)).add(side.scale(vClamped));
     out.y = this.baseY + 0.005;
     return out;
@@ -324,7 +476,7 @@ export class Game {
   }
 
   // =========================================================
-  // ✅ HARD FIX: FORCE CANVAS TOP + KILL CSS OVERLAYS (pseudo-elements)
+  // ✅ CANVAS TOP + ANTI OVERLAY
   // =========================================================
   private forceCanvasFullscreenAndTop() {
     document.documentElement.style.margin = "0";
@@ -361,27 +513,14 @@ export class Game {
     const style = document.createElement("style");
     style.id = id;
     style.textContent = `
-    html, body, #app, #renderCanvas {
-      background: transparent !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      overflow: hidden !important;
-    }
-
-    body::before, body::after,
-    #app::before, #app::after {
-      content: none !important;
-      display: none !important;
-      opacity: 0 !important;
-    }
-  `;
+      html, body, #app, #renderCanvas { background: transparent !important; margin:0 !important; padding:0 !important; overflow:hidden !important; }
+      body::before, body::after, #app::before, #app::after { content:none !important; display:none !important; opacity:0 !important; }
+    `;
     document.head.appendChild(style);
   }
 
-
-
   // =========================================================
-  // ✅ BIG BOTTOM POP TEXT (Hit / Miss / SIX / FOUR / OUT)
+  // ✅ POPUP
   // =========================================================
   private ensurePopup() {
     if (this.popupEl) return;
@@ -415,7 +554,6 @@ export class Game {
     el.style.whiteSpace = "nowrap";
     el.style.textShadow = "0 6px 24px rgba(0,0,0,0.6)";
 
-    // subtle animation using CSS transition
     el.style.transition = "opacity 240ms ease, transform 280ms ease";
 
     document.body.appendChild(el);
@@ -434,7 +572,6 @@ export class Game {
     const el = this.popupEl;
     el.innerText = text;
 
-    // color accents per type (kept simple, no extra CSS files)
     const stylesByVariant: Record<string, { border: string; bg: string }> = {
       hit: { border: "rgba(34,197,94,0.55)", bg: "rgba(16,185,129,0.18)" },
       miss: { border: "rgba(239,68,68,0.55)", bg: "rgba(239,68,68,0.14)" },
@@ -450,13 +587,11 @@ export class Game {
 
     el.style.display = "block";
 
-    // trigger animation frame
     requestAnimationFrame(() => {
       el.style.opacity = "1";
       el.style.transform = "translateX(-50%) translateY(0px)";
     });
 
-    // auto hide
     this.popupTimer = setTimeout(() => {
       if (!this.popupEl) return;
       this.popupEl.style.opacity = "0";
@@ -469,7 +604,7 @@ export class Game {
   }
 
   // =========================================================
-  // ✅ SCOREBOARD (DOM OVERLAY)
+  // ✅ SCOREBOARD
   // =========================================================
   private ensureScoreboard() {
     if (this.scoreboardEl) return;
@@ -484,7 +619,7 @@ export class Game {
     el.style.padding = "10px 12px";
     el.style.borderRadius = "1px";
     el.style.border = "1px solid rgba(255, 98, 0, 0.18)";
-    el.style.background = "rgba(193, 71, 0, 0.75)";
+    el.style.background = "rgb(255, 98, 19)";
     el.style.backdropFilter = "blur(0px)";
     el.style.color = "#ffffff";
     el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -530,7 +665,7 @@ export class Game {
   }
 
   // =========================================================
-  // ✅ COUNTDOWN (CENTER SCREEN)
+  // ✅ COUNTDOWN
   // =========================================================
   private ensureCountdown() {
     if (this.countdownEl) return;
@@ -548,8 +683,8 @@ export class Game {
     el.style.padding = "16px 22px";
     el.style.borderRadius = "1px";
     el.style.border = "1px solid rgba(255,255,255,0.22)";
-    el.style.background = "rgba(36, 218, 0, 0.25)";
-    el.style.backdropFilter = "blur(14px)";
+    el.style.background = "rgb(255, 64, 0)";
+    el.style.backdropFilter = "blur(0px)";
     el.style.boxShadow = "0 26px 80px rgba(0,0,0,0.55)";
     el.style.color = "#fff";
     el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -618,18 +753,17 @@ export class Game {
   }
 
   // =========================================================
-  // ✅ PLAY AGAIN BUTTON (DOM)
+  // ✅ PLAY AGAIN
   // =========================================================
   private ensurePlayAgainButton() {
     if (this.playAgainBtnEl) return;
 
     const btn = document.createElement("button");
-    const baseBg = "rgba(255, 85, 0, 0.85)";
+    const baseBg = "rgb(255, 85, 0)";
     const hoverBg = "rgba(255, 85, 0, 0.95)";
     btn.style.background = baseBg;
     btn.style.boxShadow = "0 10px 30px rgba(0, 0, 0, 0.09)";
     btn.style.backdropFilter = "none";
-
 
     btn.id = "cricket-play-again";
     btn.innerText = "PLAY AGAIN";
@@ -644,23 +778,16 @@ export class Game {
     btn.style.padding = "14px 18px";
     btn.style.borderRadius = "1px";
     btn.style.border = "1px solid rgba(255,255,255,0.25)";
-    // btn.style.background = "rgba(255, 85, 0, 0.55)";
-    // btn.style.backdropFilter = "blur(5px)";
     btn.style.color = "#fff";
     btn.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
     btn.style.fontWeight = "950";
     btn.style.letterSpacing = "0.8px";
     btn.style.fontSize = "15px";
     btn.style.cursor = "pointer";
-    // btn.style.boxShadow = "0 26px 80px rgba(0,0,0,0.55)";
     btn.style.display = "none";
-
-    // btn.onmouseenter = () => (btn.style.background = "rgba(0,0,0,0.7)");
-    // btn.onmouseleave = () => (btn.style.background = "rgba(0,0,0,0.55)");
 
     btn.onmouseenter = () => (btn.style.background = hoverBg);
     btn.onmouseleave = () => (btn.style.background = baseBg);
-
 
     btn.onclick = () => this.resetGame();
 
@@ -690,11 +817,9 @@ export class Game {
     this.isSwinging = false;
     this.swingConsumedHit = false;
 
-    // ✅ reset hit tracking
     this.lastHitAt = 0;
     this.hitMinY = Number.POSITIVE_INFINITY;
 
-    // ✅ stop camera follow
     this.camFollowBall = false;
 
     if (this.scene && this.ballObserver) {
@@ -713,7 +838,6 @@ export class Game {
     this.runs += amount;
     this.updateScoreboard(`${reason} (+${amount})`);
 
-    // ✅ popup for FOUR/SIX
     if (amount === 6) this.popText("SIX!", "six");
     else if (amount === 4) this.popText("FOUR!", "four");
     else this.popText(`+${amount}`, "info");
@@ -725,7 +849,6 @@ export class Game {
 
     this.nextDeliveryAt = Number.POSITIVE_INFINITY;
 
-    // ✅ stop camera follow
     this.camFollowBall = false;
 
     if (this.scene && this.ballObserver) {
@@ -739,7 +862,7 @@ export class Game {
   }
 
   // =========================================================
-  // ✅ BOUNDARY + WICKET DETECTION HELPERS
+  // ✅ BOUNDARY + WICKET
   // =========================================================
   private setupBoundaryAndWickets(scene: Scene) {
     const findByNameLoose = (needle: string) => {
@@ -802,7 +925,7 @@ export class Game {
           minZ = Math.min(minZ, vMin.z);
           maxX = Math.max(maxX, vMax.x);
           maxZ = Math.max(maxZ, vMax.z);
-        } catch { }
+        } catch {}
       }
 
       const cx = (minX + maxX) / 2;
@@ -814,9 +937,6 @@ export class Game {
       this.boundaryMesh = boundaryMeshes[0];
       this.boundaryCenter.set(cx, this.baseY, cz);
       this.boundaryRadius = Math.max(0.01, r);
-
-      console.log("[BOUNDARY FIX] meshes:", boundaryMeshes.length);
-      console.log("[BOUNDARY FIX] center:", this.boundaryCenter.toString(), "radius:", this.boundaryRadius);
     } else {
       this.boundaryMesh = null;
       this.boundaryRadius = 0;
@@ -851,7 +971,7 @@ export class Game {
         const r = bi.boundingSphere.radiusWorld;
         const d = Vector3.Distance(ballPos, c);
         if (d <= r + ballRadius * 1.35) return true;
-      } catch { }
+      } catch {}
     }
     return false;
   }
@@ -860,10 +980,13 @@ export class Game {
   // ✅ MAIN SCENE
   // =========================================================
   private async createScene() {
+    // ✅ show loader first
+    this.showLoader("Booting engine…");
+    this.setLoader(2, "Preparing scene…", true);
+
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
-    this.killFullscreenCurtains();
-
+    this.killFullscreenCurtains(); // ✅ now loader will NOT be removed
 
     const scene = new Scene(this.engine);
     this.scene = scene;
@@ -882,26 +1005,22 @@ export class Game {
     const sun = new DirectionalLight("sun", new Vector3(-0.35, -1, -0.25), scene);
     sun.intensity = 2.0;
 
-    // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
     try {
+      // ✅ HDR
+      this.setLoader(6, "Loading sky…");
 
-
-      // const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
       const hdrUrl = this.assetUrl("hdr/sky2k.hdr") + `?v=${Date.now()}`;
 
       const hdr = new HDRCubeTexture(
         hdrUrl,
         scene,
         512,
-        false, // noMipmap
-        true,  // generateHarmonics
-        false, // gammaSpace
-        true,  // reserved
-        () => {
-          // onSuccess: Do nothing, it worked!
-        },
-        (message, exception) => {
-          // 🚨 onError: This catches the 404 and runs the fallback!
+        false,
+        true,
+        false,
+        true,
+        () => {},
+        (message) => {
           console.warn("HDR Failed to load, switching to fallback environment:", message);
           scene.environmentTexture = null;
           scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
@@ -918,25 +1037,33 @@ export class Game {
       scene.imageProcessingConfiguration.toneMappingType = 1;
       scene.imageProcessingConfiguration.exposure = 1.25;
       scene.imageProcessingConfiguration.contrast = 1.08;
+
+      this.setLoader(10, "Sky ready");
     } catch (e) {
       console.warn("HDR failed to load:", e);
       scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
+      this.setLoader(10, "Sky fallback loaded");
     }
 
-    // ✅ Havok Physics
+    // ✅ Havok
+    this.setLoader(14, "Initializing physics…");
     const hk = await HavokPhysics();
     const plugin = new HavokPlugin(true, hk);
     scene.enablePhysics(new Vector3(0, -9.81, 0), plugin);
+    this.setLoader(20, "Physics ready");
 
-    // ✅ Load stadium
-    // const stadium = await SceneLoader.ImportMeshAsync("", "/models/", "cricket3.glb", scene);
+    // ✅ Stadium load with progress (20 -> 80)
     const stadium = await SceneLoader.ImportMeshAsync(
       "",
       this.assetUrl("models/"),
       "cricket3.glb",
-      scene
+      scene,
+      (evt) => {
+        const p = this.mapProgress(evt, 18 * 1024 * 1024); // fallback 18MB
+        const mapped = 20 + p * 60;
+        this.setLoader(mapped, `Loading stadium… ${Math.round(mapped)}%`);
+      }
     );
-
 
     stadium.meshes.forEach((m) => {
       const n = (m.name || "").toLowerCase();
@@ -994,23 +1121,17 @@ export class Game {
     this.setupBoundaryAndWickets(scene);
     this.createEnvironmentColliders(scene);
 
-    // ✅ Camera (locked broadcast + side offset)
+    // ✅ Camera
     const pitchStartPos = this.worldPos(this.pitchStart);
     const batsmanPos = this.worldPos(this.batsmanPoint);
 
-    // forward direction (batsman -> pitchStart)
     const lookDir = pitchStartPos.subtract(batsmanPos).normalize();
-
-    // side direction (pitchL -> pitchR)
     const pitchSide = this.worldPos(this.pitchR).subtract(this.worldPos(this.pitchL)).normalize();
 
-    // -------- TUNE THESE 3 VALUES ----------
-    const eyeHeight = 0.3; // up/down
-    const eyeBack = 0.5; // zoom in/out
-    const sideOffset = 0; // left/right (negative = other side)
-    // --------------------------------------
+    const eyeHeight = 0.3;
+    const eyeBack = 0.5;
+    const sideOffset = 0;
 
-    // final camera direction (forward + side)
     const camDir = lookDir.add(pitchSide.scale(sideOffset)).normalize();
 
     const camera = new UniversalCamera(
@@ -1021,17 +1142,15 @@ export class Game {
 
     this.camera = camera;
 
-    camera.fov = 1.2; // radians
+    camera.fov = 1.2;
     camera.minZ = 0.03;
     camera.speed = 0;
     camera.inertia = 0.7;
     camera.attachControl(this.canvas, true);
 
-    // aim slightly above the pitch start
     camera.setTarget(new Vector3(pitchStartPos.x, this.baseY + eyeHeight, pitchStartPos.z));
     this.camTargetSmoothed.copyFrom(camera.getTarget());
 
-    // ✅ IMPORTANT: keep the SAME camDir logic every frame + follow-ball target after hit
     scene.onBeforeRenderObservable.add(() => {
       if (this.gameOver) return;
 
@@ -1042,13 +1161,10 @@ export class Game {
       const side = this.worldPos(this.pitchR).subtract(this.worldPos(this.pitchL)).normalize();
       const dir = fwd.add(side.scale(sideOffset)).normalize();
 
-      // keep broadcast camera position
       camera.position.copyFrom(new Vector3(bw.x, this.baseY + eyeHeight, bw.z).subtract(dir.scale(eyeBack)));
 
-      // default target = pitch start
       let desiredTarget = new Vector3(ps.x, this.baseY + eyeHeight, ps.z);
 
-      // ✅ follow ball after hit for some time
       if (this.camFollowBall && this.activeBall) {
         const now = performance.now();
         if (now - this.camFollowStartAt <= this.CAM_FOLLOW_DURATION_MS) {
@@ -1061,7 +1177,6 @@ export class Game {
         this.camFollowBall = false;
       }
 
-      // smooth target lerp
       this.camTargetSmoothed.x = Scalar.Lerp(this.camTargetSmoothed.x, desiredTarget.x, this.CAM_TARGET_LERP);
       this.camTargetSmoothed.y = Scalar.Lerp(this.camTargetSmoothed.y, desiredTarget.y, this.CAM_TARGET_LERP);
       this.camTargetSmoothed.z = Scalar.Lerp(this.camTargetSmoothed.z, desiredTarget.z, this.CAM_TARGET_LERP);
@@ -1069,30 +1184,12 @@ export class Game {
       camera.setTarget(this.camTargetSmoothed);
     });
 
-    // ✅ Post FX pipeline
-    // const pipeline = new DefaultRenderingPipeline("realismPipeline", true, scene, [camera]);
-    // pipeline.fxaaEnabled = true;
-    // pipeline.imageProcessingEnabled = true;
-
-    // pipeline.bloomEnabled = true;
-    // pipeline.bloomThreshold = 0.85;
-    // pipeline.bloomWeight = 0.25;
-    // pipeline.bloomKernel = 64;
-
-    // pipeline.depthOfFieldEnabled = false;
-
-    // pipeline.sharpenEnabled = true;
-    // pipeline.sharpen.edgeAmount = 0.25;
-    // pipeline.sharpen.colorAmount = 0.15;
-
-    // if (pipeline.imageProcessing) {
-    //   pipeline.imageProcessing.vignetteEnabled = false;
-    //   pipeline.imageProcessing.contrast = 1.05;
-    //   pipeline.imageProcessing.exposure = 1.1;
-    // }
-
-    // ✅ Bat
-    await this.setupBat3D(scene);
+    // ✅ Bat load with progress (80 -> 95)
+    this.setLoader(80, "Loading bat…");
+    await this.setupBat3D(scene, (p) => {
+      const mapped = 80 + p * 15;
+      this.setLoader(mapped, `Loading bat… ${Math.round(mapped)}%`);
+    });
 
     // ✅ Wicket helper collider
     const wicketBox = MeshBuilder.CreateBox("WicketTargetCollider", { width: 0.4, height: 1.0, depth: 0.2 }, scene);
@@ -1102,15 +1199,18 @@ export class Game {
 
     this.updateScoreboard("Ready");
     this.startDeliveries(scene, { intervalMs: 5300 });
-
     this.startMatchWithDelay();
+
+    this.setLoader(98, "Finalizing…");
+    await this.hideLoader();
+
     return scene;
   }
 
   // =========================================================
-  // ✅ BAT: load 3D model + cursor follow + TIMING-based hit
+  // ✅ BAT
   // =========================================================
-  private async setupBat3D(scene: Scene) {
+  private async setupBat3D(scene: Scene, onProgress?: (p01: number) => void) {
     const pitchStart = this.worldPos(this.pitchStart);
     const pitchEnd = this.worldPos(this.pitchEnd);
 
@@ -1128,12 +1228,15 @@ export class Game {
     pickPlane.rotation.y = Math.atan2(pitchForward.x, pitchForward.z);
     this.pickPlane = pickPlane;
 
-    // const batRes = await SceneLoader.ImportMeshAsync("", "/models/", "bat2.glb", scene);
     const batRes = await SceneLoader.ImportMeshAsync(
       "",
       this.assetUrl("models/"),
       "bat2.glb",
-      scene
+      scene,
+      (evt) => {
+        const p = this.mapProgress(evt, 5 * 1024 * 1024); // fallback 5MB
+        onProgress?.(p);
+      }
     );
 
     const batRoot = new TransformNode("batRoot", scene);
@@ -1204,15 +1307,15 @@ export class Game {
     scene.onDisposeObservable.add(() => {
       try {
         scene.onPointerObservable.remove(pointerObs);
-      } catch { }
+      } catch {}
       try {
         pickPlane.dispose();
-      } catch { }
+      } catch {}
       try {
         batRes.meshes.forEach((m) => m?.dispose?.());
         batRes.transformNodes.forEach((t) => t?.dispose?.());
         batRoot.dispose();
-      } catch { }
+      } catch {}
     });
 
     scene.onBeforeRenderObservable.add(() => {
@@ -1223,7 +1326,6 @@ export class Game {
       if (this.isSwinging && now > this.swingUntil) {
         this.isSwinging = false;
 
-        // ✅ MISS popup
         if (!this.gameOver && this.pendingMissForThisSwing && !this.swingConsumedHit) {
           this.misses += 1;
           this.updateScoreboard("Missed!");
@@ -1252,7 +1354,6 @@ export class Game {
       this.lastBatPos.copyFrom(this.batRoot.position);
       this.lastBatT = now;
 
-      // HIT ASSIST (stick ball to sweet spot for 2 frames)
       if (this.hitAssistFramesLeft > 0 && this.activeBall && this.activeBallAgg && this.batStart) {
         const sweet = this.batStart.getAbsolutePosition().clone();
 
@@ -1273,7 +1374,6 @@ export class Game {
         return;
       }
 
-      // HIT DETECTION
       if (this.isSwinging && !this.swingConsumedHit && this.activeBall && this.activeBallAgg && this.batL && this.batR) {
         const ball = this.activeBall;
         const body = this.activeBallAgg.body;
@@ -1290,7 +1390,6 @@ export class Game {
           this.swingConsumedHit = true;
           this.pendingMissForThisSwing = false;
 
-          // ✅ HIT popup
           this.popText("HIT!", "hit");
 
           if (!this.wasHitThisDelivery) {
@@ -1301,11 +1400,9 @@ export class Game {
 
           this.ballWasHit = true;
 
-          // ✅ CAMERA: follow ball after hit
           this.camFollowBall = true;
           this.camFollowStartAt = performance.now();
 
-          // ✅ FIX: reset hit tracking for accurate 4/6
           this.lastHitAt = performance.now();
           this.hitMinY = Number.POSITIVE_INFINITY;
           this.touchedGroundSinceHit = false;
@@ -1313,50 +1410,38 @@ export class Game {
           // @ts-ignore
           body.wakeUp?.();
 
-          // ---- direction basis
           const baseDir = ps.subtract(ballPos).normalize();
           const vLen = batVel.length();
           const batVelDir = vLen > 0.001 ? batVel.scale(1 / vLen) : baseDir;
 
           const dir = batVelDir.scale(0.75).add(baseDir.scale(0.25)).normalize();
 
-          // ---- timing window
           const bp = this.worldPos(this.batsmanPoint);
           const distToBatsman = Vector3.Distance(ballPos, bp);
 
           const IDEAL = 0.28;
           const WINDOW = 0.55;
           const timingRaw = 1 - this.clamp(Math.abs(distToBatsman - IDEAL) / WINDOW, 0, 1);
-          const timingScore = timingRaw * timingRaw; // 0..1
+          const timingScore = timingRaw * timingRaw;
 
-          // ---- alignment & speed
           const align = this.clamp(Vector3.Dot(batVelDir, dir), 0, 1);
           const swingSpeed = this.clamp(vLen, 0, 18);
           const swingFactor = this.clamp((swingSpeed - 3) / 10, 0, 1);
 
-          // ---- sweet spot (middle only)
-          const sweetSpotFactor = 1 - Math.abs(hit.t - 0.5) * 2; // 1 at center, 0 at edges
+          const sweetSpotFactor = 1 - Math.abs(hit.t - 0.5) * 2;
           const sweet = this.clamp(sweetSpotFactor, 0, 1);
 
-          // ---- harsher timing curve
           const timingFactor = Math.pow(timingScore, 1.6);
           const alignFactor = this.clamp(align, 0, 1);
 
-          // =========================================================
-          // ✅ REALISTIC POWER + LOFT + SIX GATE
-          // =========================================================
-          let power =
-            this.BAT_BASE_POWER + this.BAT_MAX_POWER * timingFactor * sweet * alignFactor * swingFactor;
-
+          let power = this.BAT_BASE_POWER + this.BAT_MAX_POWER * timingFactor * sweet * alignFactor * swingFactor;
           let loft = this.BAT_LOFT_BASE + this.BAT_LOFT_MAX * timingFactor * sweet * swingFactor;
 
-          // Penalize mistimed / edge hits heavily
           if (timingScore < 0.35) {
             power *= 0.45;
             loft *= 0.4;
           }
 
-          // SIX only when all are perfect
           const isSixCandidate =
             timingScore >= this.SIX_TIMING_MIN &&
             alignFactor >= this.SIX_ALIGN_MIN &&
@@ -1368,7 +1453,6 @@ export class Game {
             power *= 0.85;
           }
 
-          // Direction randomness on bad timing/edge
           let finalDir = dir.clone();
           if (timingScore < 0.5 || sweet < 0.5) {
             finalDir = finalDir
@@ -1376,7 +1460,6 @@ export class Game {
               .normalize();
           }
 
-          // Hit assist launch
           this.hitAssistFramesLeft = 2;
           this.hitAssistVel.copyFrom(finalDir.scale(power));
           this.hitAssistVel.y += loft;
@@ -1422,7 +1505,7 @@ export class Game {
           const maxDim = Math.max(size.x, size.y, size.z) * 2;
           if (maxDim > this.pitchLen * 6) return false;
         }
-      } catch { }
+      } catch {}
 
       return true;
     });
@@ -1430,7 +1513,7 @@ export class Game {
     candidates.forEach((m) => {
       try {
         new PhysicsAggregate(m, PhysicsShapeType.MESH, { mass: 0, friction: 0.95, restitution: 0.02 }, scene);
-      } catch { }
+      } catch {}
     });
   }
 
@@ -1477,11 +1560,9 @@ export class Game {
     this.prevInsideBoundary = true;
     this.hitAssistFramesLeft = 0;
 
-    // ✅ reset hit tracking for this delivery
     this.lastHitAt = 0;
     this.hitMinY = Number.POSITIVE_INFINITY;
 
-    // ✅ reset camera follow for new delivery
     this.camFollowBall = false;
 
     this.balls += 1;
@@ -1514,8 +1595,6 @@ export class Game {
     const lengthJitter = isYorker ? this.rand(-0.12, 0.12) : this.rand(-0.35, 0.35);
 
     bouncePoint = bouncePoint.add(pitchSide.scale(lineJitter)).add(pitchForward.scale(lengthJitter));
-
-    // ✅ HARD CLAMP: keep bounce strictly inside the pitch
     bouncePoint = this.clampPointToPitch(bouncePoint, 0.08, 0.12);
 
     const ballRadius = 0.012;
@@ -1532,7 +1611,12 @@ export class Game {
     this.prevInsideBoundary = this.isInsideBoundary(ball.position);
 
     const restitution = this.rand(0.12, 0.35);
-    const ballAgg = new PhysicsAggregate(ball, PhysicsShapeType.SPHERE, { mass: 0.156, friction: 0.28, restitution }, scene);
+    const ballAgg = new PhysicsAggregate(
+      ball,
+      PhysicsShapeType.SPHERE,
+      { mass: 0.156, friction: 0.28, restitution },
+      scene
+    );
 
     const body = ballAgg.body;
     body.setLinearDamping(0.01);
@@ -1572,25 +1656,18 @@ export class Game {
       const age = (performance.now() - bornAt) / 1000;
       const p = ball.getAbsolutePosition();
 
-      // ✅ OUT (delay prevents instant out)
       if (age > 0.25 && this.checkWicketHit(p, ballRadius)) {
         this.setOut("OUT! Wicket hit");
-        // setOut already pops OUT
         return;
       }
 
       const pitchTouchY = this.baseY + ballRadius * 1.05;
 
-      // =========================================================
-      // ✅ FIX: "REAL" ground touch after hit (prevents false bounce from hit-assist)
-      // =========================================================
       if (this.wasHitThisDelivery) {
         const sinceHit = performance.now() - this.lastHitAt;
 
-        // track min Y since hit
         this.hitMinY = Math.min(this.hitMinY, p.y);
 
-        // only allow bounce detection after grace period
         if (sinceHit > this.HIT_GROUND_GRACE_MS) {
           const v = body.getLinearVelocity();
           const nearGround = p.y <= pitchTouchY + 0.0025;
@@ -1603,9 +1680,6 @@ export class Game {
         }
       }
 
-      // =========================================================
-      // ✅ Boundary scoring (SIX if no ground touch since hit)
-      // =========================================================
       if (!this.boundaryScored && this.boundaryRadius > 0.01) {
         const inside = this.isInsideBoundary(p);
         if (this.prevInsideBoundary && !inside) {
@@ -1696,14 +1770,13 @@ export class Game {
     }
     try {
       this.activeBallAgg?.dispose();
-    } catch { }
+    } catch {}
     try {
       this.activeBall?.dispose();
-    } catch { }
+    } catch {}
     this.activeBall = null;
     this.activeBallAgg = null;
 
-    // ✅ stop follow if ball gone
     this.camFollowBall = false;
   }
 
