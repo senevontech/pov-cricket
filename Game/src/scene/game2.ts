@@ -295,30 +295,39 @@ export class Game {
   }
 
   private injectAntiOverlayCSS() {
-    const id = "anti-overlay-style";
-    if (document.getElementById(id)) return;
+  const id = "anti-overlay-style";
+  if (document.getElementById(id)) return;
 
-    const style = document.createElement("style");
-    style.id = id;
+  const style = document.createElement("style");
+  style.id = id;
 
-    style.textContent = `
-      html, body, #root { background: transparent !important; }
-      body::before, body::after,
-      #root::before, #root::after,
-      .app::before, .app::after,
-      .overlay::before, .overlay::after {
-        content: none !important;
-        display: none !important;
-        opacity: 0 !important;
-      }
-      .overlay, .backdrop, .modal-overlay, .fullscreen-overlay, .game-over-overlay {
-        display: none !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  style.textContent = `
+    html, body, #app, #renderCanvas {
+      background: transparent !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+    }
+
+    /* kill any pseudo overlays */
+    body::before, body::after,
+    #app::before, #app::after {
+      content: none !important;
+      display: none !important;
+      opacity: 0 !important;
+    }
+
+    /* also kill common overlay classes if any exists */
+    .overlay, .backdrop, .modal-overlay, .fullscreen-overlay, .game-over-overlay {
+      display: none !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
 
   // =========================================================
   // ✅ BIG BOTTOM POP TEXT (Hit / Miss / SIX / FOUR / OUT)
@@ -811,9 +820,7 @@ export class Game {
 
     // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
     try {
-      // const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
       
-      // const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
 
       const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
       const hdr = new HDRCubeTexture(
