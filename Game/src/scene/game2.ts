@@ -55,6 +55,12 @@ private BAT_HIT_SFX_COOLDOWN_MS = 70; // prevents spam if hit checks fire quickl
 private sfxBatHitReady = false;
 private sfxBatHitFailed = false;
 
+// ✅ HOW TO PLAY UI
+private helpBtnEl: HTMLButtonElement | null = null;
+private helpModalWrap: HTMLDivElement | null = null;
+private helpModalShownOnce = false;
+
+
 
 
   // ✅ LOADER UI
@@ -116,13 +122,13 @@ private mobileHintShown = false;
   // =========================================================
   // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
   // =========================================================
-  private BAT_BASE_POWER = 10.2;
-  private BAT_MAX_POWER = 50;
+  private BAT_BASE_POWER = 8.2;
+  private BAT_MAX_POWER = 20;
 
-  private BAT_LOFT_BASE = 20.6;
-  private BAT_LOFT_MAX = 30.8;
+  private BAT_LOFT_BASE = 10.6;
+  private BAT_LOFT_MAX = 11.8;
 
-  private SIX_TIMING_MIN = 0.88; // must be almost perfect (0..1)
+  private SIX_TIMING_MIN = 0; // must be almost perfect (0..1)
   private SIX_ALIGN_MIN = 0.75;
   private SIX_SWING_SPEED_MIN = 8.0;
 
@@ -350,6 +356,203 @@ private async playBatHitSfx(intensity01 = 0.75) {
     // console.warn("SFX play failed:", e);
   }
 }
+
+
+// =========================================================
+// ✅ HOW TO PLAY ( ? button + popup )
+// =========================================================
+private ensureHowToPlayUI() {
+  if (this.helpBtnEl) return;
+
+  // --- Button ---
+  const btn = document.createElement("button");
+  btn.id = "cricket-help-btn";
+  btn.type = "button";
+  btn.innerText = "?";
+
+  btn.style.width = "42px";
+  btn.style.height = "42px";
+  btn.style.borderRadius = "0px";
+  btn.style.border = "1px solid rgb(165, 165, 165)";
+  btn.style.background = "rgba(255, 81, 0, 0.33)";
+  btn.style.backdropFilter = "blur(6px)";
+  btn.style.color = "#ffffff";
+  btn.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  btn.style.fontWeight = "600";
+  btn.style.fontSize = "18px";
+  btn.style.cursor = "pointer";
+  btn.style.pointerEvents = "auto";
+  btn.style.userSelect = "none";
+  btn.style.boxShadow = "0 18px 50px rgba(0, 0, 0, 0.17)";
+  btn.style.display = "inline-flex";
+  btn.style.alignItems = "center";
+  btn.style.justifyContent = "center";
+
+  // Hover (desktop)
+  btn.onmouseenter = () => (btn.style.background = "rgba(255,85,0,0.88)");
+  btn.onmouseleave = () => (btn.style.background = "rgba(0,0,0,0.48)");
+
+  btn.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    this.showHowToPlay(true);
+  };
+
+  document.body.appendChild(btn);
+  this.helpBtnEl = btn;
+
+  // --- Modal Wrap ---
+  const wrap = document.createElement("div");
+  wrap.id = "cricket-howto";
+  wrap.style.position = "fixed";
+  wrap.style.inset = "0";
+  wrap.style.zIndex = "100000"; // under loader (999999), above everything else
+  wrap.style.display = "none";
+  wrap.style.alignItems = "center";
+  wrap.style.justifyContent = "center";
+  wrap.style.padding = "16px";
+  wrap.style.background = "rgba(0, 0, 0, 0.15)";
+  wrap.style.backdropFilter = "blur(4px)";
+  wrap.style.pointerEvents = "auto";
+
+  // Modal Card
+  const card = document.createElement("div");
+  card.style.width = "min(560px, 92vw)";
+  card.style.maxHeight = "min(74vh, 560px)";
+  // card.style.overflow = "auto";
+  card.style.overflowY = "auto";
+card.style.overflowX = "hidden";
+
+/* hide scrollbar - Firefox */
+(card.style as any).scrollbarWidth = "none";
+
+/* hide scrollbar - IE / Edge */
+(card.style as any).msOverflowStyle = "none";
+
+  card.style.borderRadius = "1px";
+  card.style.border = "1px solid rgb(179, 179, 179)";
+  card.style.background = "rgb(255, 60, 0)";
+  card.style.color = "#fff";
+  card.style.boxShadow = "0 30px 90px rgba(0, 0, 0, 0.21)";
+  card.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+  // Header
+  const header = document.createElement("div");
+  header.style.position = "sticky";
+  header.style.top = "0";
+  header.style.display = "flex";
+  header.style.alignItems = "center";
+  header.style.justifyContent = "space-between";
+  header.style.gap = "10px";
+  header.style.padding = "14px 14px";
+  header.style.borderBottom = "1px solid rgba(255,255,255,0.14)";
+  header.style.background = "rgb(221, 221, 221)";
+  header.style.backdropFilter = "blur(6px)";
+  header.style.color = "#c62800";
+
+  const title = document.createElement("div");
+  title.innerText = "How to Play";
+  title.style.fontWeight = "1000";
+  title.style.letterSpacing = "0.4px";
+  title.style.fontSize = "16px";
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.innerText = "✕";
+  close.style.width = "36px";
+  close.style.height = "36px";
+  close.style.borderRadius = "10px";
+  close.style.border = "1px solid rgba(255,255,255,0.18)";
+  close.style.background = "rgba(255,255,255,0.10)";
+  close.style.color = "#c62800";
+  close.style.cursor = "pointer";
+  close.style.fontWeight = "900";
+  close.style.fontSize = "14px";
+  close.style.pointerEvents = "auto";
+
+  close.onmouseenter = () => (close.style.background = "rgba(255,85,0,0.85)");
+  close.onmouseleave = () => (close.style.background = "rgba(255,255,255,0.10)");
+  close.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    this.showHowToPlay(false);
+  };
+
+  header.appendChild(title);
+  header.appendChild(close);
+
+  // Content
+  const body = document.createElement("div");
+  body.style.padding = "14px 14px 16px";
+
+  const small = (txt: string) => `<div style="opacity:.88; font-size:13px; line-height:1.45;">${txt}</div>`;
+  const hr = `<div style="height:1px; background:rgba(255,255,255,0.12); margin:12px 0;"></div>`;
+  const pill = (txt: string) =>
+    `<span style="display:inline-block; padding:3px 10px; border:1px solid rgba(255,255,255,0.16); border-radius:999px; font-size:12px; font-weight:900; letter-spacing:.25px; background:rgba(255,255,255,0.08);">${txt}</span>`;
+
+  body.innerHTML = `
+    ${small(
+      `${pill("Goal")} Time your swing and hit the ball. Perfect timing + sweet spot gives big hits (SIX!).`
+    )}
+    ${hr}
+    <div style="display:grid; gap:12px;">
+      <div style="padding:12px; border:1px solid rgba(255,255,255,0.14); border-radius:10px; background:rgba(255,255,255,0.06);">
+        <div style="font-weight:1000; letter-spacing:.3px; margin-bottom:6px;">Desktop Controls</div>
+        ${small("• Move your mouse and click at right time and placement.<br>• Clickng at right time also goes for a six<br>")}
+      </div>
+
+      <div style="padding:12px; border:1px solid rgba(255,255,255,0.14); border-radius:10px; background:rgba(255,255,255,0.06);">
+        <div style="font-weight:1000; letter-spacing:.3px; margin-bottom:6px;">Mobile Controls</div>
+        ${small("• Drag your finger to position the bat.<br>• <b>Swipe fast</b> to swing (tap does not swing).<br>• Try swiping when the ball is close to the bat and tap.")}
+      </div>
+
+      
+
+      <div style="padding:12px; border:1px solid rgba(255,255,255,0.14); border-radius:10px; background:rgba(255,255,255,0.06);">
+        <div style="font-weight:1000; letter-spacing:.3px; margin-bottom:6px;">Tips</div>
+        ${small("• Keep bat near the pitch line.<br>• Swing slightly late for lofted shots.<br>• Smooth mouse movement improves accuracy.")}
+      </div>
+    </div>
+
+    ${hr}
+    ${small("Close: tap outside / press ESC / click ✕")}
+  `;
+
+  card.appendChild(header);
+  card.appendChild(body);
+  wrap.appendChild(card);
+  document.body.appendChild(wrap);
+
+  // close when clicking outside card
+  wrap.onclick = (e) => {
+    if (e.target === wrap) this.showHowToPlay(false);
+  };
+
+  // ESC to close
+  const esc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") this.showHowToPlay(false);
+  };
+  window.addEventListener("keydown", esc);
+
+  // cleanup on scene dispose
+  this.scene?.onDisposeObservable.add(() => {
+    window.removeEventListener("keydown", esc);
+    try { wrap.remove(); } catch {}
+    try { btn.remove(); } catch {}
+    this.helpModalWrap = null;
+    this.helpBtnEl = null;
+  });
+
+  this.helpModalWrap = wrap;
+}
+
+private showHowToPlay(show: boolean) {
+  this.ensureHowToPlayUI();
+  if (!this.helpModalWrap) return;
+
+  this.helpModalWrap.style.display = show ? "flex" : "none";
+}
+
 
 
 
@@ -759,6 +962,23 @@ private injectAntiOverlayCSS() {
 
     /* ✅ ensure hint is always clickable/visible when shown */
     #cricket-mobile-hint { display:none; }
+        /* ✅ How-to-play UI */
+    #cricket-help-btn{
+      position:fixed; 
+      right:max(50px, env(safe-area-inset-right));
+      bottom:max(50px, env(safe-area-inset-top)); /* under scoreboard */
+      z-index:10060;
+    }
+    @media (max-width: 520px){
+      #cricket-help-btn{ bottom:max(130px, env(safe-area-inset-top)); right:max(10px, env(safe-area-inset-right)); }
+    }
+      /* ✅ Hide scrollbar for How To Play modal (Chrome, Safari) */
+#cricket-howto > div::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+
   `;
   document.head.appendChild(style);
 }
@@ -1288,6 +1508,8 @@ try {
     this.ensureCountdown();
     this.ensurePopup();
     this.showPlayAgain(false);
+    this.ensureHowToPlayUI();
+
 
     scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
 
