@@ -122,13 +122,13 @@ private mobileHintShown = false;
   // =========================================================
   // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
   // =========================================================
-  private BAT_BASE_POWER = 8.2;
-  private BAT_MAX_POWER = 20;
+  private BAT_BASE_POWER = 9;
+  private BAT_MAX_POWER = 50;
 
   private BAT_LOFT_BASE = 10.6;
   private BAT_LOFT_MAX = 11.8;
 
-  private SIX_TIMING_MIN = 0; // must be almost perfect (0..1)
+  private SIX_TIMING_MIN = 110; // must be almost perfect (0..1)
   private SIX_ALIGN_MIN = 0.75;
   private SIX_SWING_SPEED_MIN = 8.0;
 
@@ -195,6 +195,13 @@ private mobileHintShown = false;
   private boundaryMesh: AbstractMesh | null = null;
   private boundaryCenter = new Vector3(0, 0, 0);
   private boundaryRadius = 0;
+
+  private boundaryMinX = 0;
+private boundaryMaxX = 0;
+private boundaryMinZ = 0;
+private boundaryMaxZ = 0;
+private boundaryHasAABB = false;
+
 
   private wicketMeshes: AbstractMesh[] = [];
 
@@ -1394,14 +1401,27 @@ private injectAntiOverlayCSS() {
       }
 
       const cx = (minX + maxX) / 2;
-      const cz = (minZ + maxZ) / 2;
-      const rx = (maxX - minX) / 2;
-      const rz = (maxZ - minZ) / 2;
-      const r = Math.max(rx, rz);
+const cz = (minZ + maxZ) / 2;
 
-      this.boundaryMesh = boundaryMeshes[0];
-      this.boundaryCenter.set(cx, this.baseY, cz);
-      this.boundaryRadius = Math.max(0.01, r);
+// Keep circle as fallback
+const rx = (maxX - minX) / 2;
+const rz = (maxZ - minZ) / 2;
+const r = Math.max(rx, rz);
+
+this.boundaryMesh = boundaryMeshes[0];
+this.boundaryCenter.set(cx, this.baseY, cz);
+this.boundaryRadius = Math.max(0.01, r);
+
+// ✅ NEW: store AABB bounds for accurate “rope crossing”
+this.boundaryMinX = minX;
+this.boundaryMaxX = maxX;
+this.boundaryMinZ = minZ;
+this.boundaryMaxZ = maxZ;
+this.boundaryHasAABB = true;
+
+
+
+
     } else {
       this.boundaryMesh = null;
       this.boundaryRadius = 0;
@@ -1419,11 +1439,26 @@ private injectAntiOverlayCSS() {
   }
 
   private isInsideBoundary(p: Vector3) {
-    if (!this.boundaryRadius || !Number.isFinite(this.boundaryRadius)) return true;
-    const dx = p.x - this.boundaryCenter.x;
-    const dz = p.z - this.boundaryCenter.z;
-    return dx * dx + dz * dz <= this.boundaryRadius * this.boundaryRadius;
+  // If boundary not detected, treat as inside
+  if ((!this.boundaryRadius || !Number.isFinite(this.boundaryRadius)) && !this.boundaryHasAABB) return true;
+
+  // ✅ Prefer AABB check (more reliable for corners / rectangular ropes)
+  if (this.boundaryHasAABB) {
+    const margin = 0.05; // tiny buffer to avoid flicker at rope edge
+    return (
+      p.x >= this.boundaryMinX + margin &&
+      p.x <= this.boundaryMaxX - margin &&
+      p.z >= this.boundaryMinZ + margin &&
+      p.z <= this.boundaryMaxZ - margin
+    );
   }
+
+  // fallback circle
+  const dx = p.x - this.boundaryCenter.x;
+  const dz = p.z - this.boundaryCenter.z;
+  return dx * dx + dz * dz <= this.boundaryRadius * this.boundaryRadius;
+}
+
 
   private checkWicketHit(ballPos: Vector3, ballRadius: number) {
     if (!this.wicketMeshes.length) return false;
