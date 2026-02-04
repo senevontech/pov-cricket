@@ -117,7 +117,7 @@ private mobileHintShown = false;
   // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
   // =========================================================
   private BAT_BASE_POWER = 10.2;
-  private BAT_MAX_POWER = 20;
+  private BAT_MAX_POWER = 50;
 
   private BAT_LOFT_BASE = 20.6;
   private BAT_LOFT_MAX = 30.8;
@@ -318,7 +318,9 @@ private async unlockAudio() {
   } catch (e) {
     // fail silently (audio just won't play until browser allows it)
     console.warn("Audio unlock failed:", e);
+
   }
+  
 }
 
 private async playBatHitSfx(intensity01 = 0.75) {
@@ -1919,9 +1921,9 @@ this.playBatHitSfx(intensity);
     // @ts-ignore
     body.wakeUp?.();
 
-    const speed = this.rand(2, 7);
+    const speed = this.rand(0.5, 7);
     const dist = Vector3.Distance(release, bouncePoint);
-    const t = this.clamp(dist / speed, 0.25, 1.35);
+    const t = this.clamp(dist / speed, 0.5, 0.35);
 
     const g = -9.81;
     const toBounce = bouncePoint.subtract(release);
