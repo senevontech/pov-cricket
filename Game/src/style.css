@@ -6,13 +6,14 @@ html, body, #app {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: #00000000;
+  background: transparent;
 }
 
 /* REMOVE Vite demo flex layout */
 body {
   display: block;
   min-height: 100%;
+  background: transparent;
 }
 
 /* REMOVE centered container behavior */
@@ -20,6 +21,7 @@ body {
   max-width: none;
   padding: 0;
   text-align: initial;
+  background: transparent;
 }
 
 /* Canvas must own the screen */
@@ -31,4 +33,5 @@ body {
   inset: 0;
   z-index: 1;
   touch-action: none;
+  background: transparent;
 }
