@@ -1,32 +1,34 @@
-/* style.css (REPLACE ENTIRE FILE) */
+/* ===== FULLSCREEN BABYLON SAFE CSS ===== */
 
-/* Fullscreen, no “center card” layout */
 html, body, #app {
   width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: #000; /* or transparent if you want */
+  background: #00000000;
 }
 
-/* kill the Vite template flex centering */
+/* REMOVE Vite demo flex layout */
 body {
   display: block;
   min-height: 100%;
 }
 
-/* remove template container sizing */
+/* REMOVE centered container behavior */
 #app {
   max-width: none;
   padding: 0;
   text-align: initial;
 }
 
-/* canvas always fills the screen */
+/* Canvas must own the screen */
 #renderCanvas {
   width: 100vw;
   height: 100vh;
   display: block;
-  touch-action: none; /* helps pointer on mobile */
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  touch-action: none;
 }

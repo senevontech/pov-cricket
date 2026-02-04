@@ -86,11 +86,11 @@ export class Game {
   // =========================================================
   // ✅ BAT POWER TUNING (SIX only on perfect timing + sweet spot)
   // =========================================================
-  private BAT_BASE_POWER = 20.2;
-  private BAT_MAX_POWER = 40;
+  private BAT_BASE_POWER = 10.2;
+  private BAT_MAX_POWER = 20;
 
   private BAT_LOFT_BASE = 20.6;
-  private BAT_LOFT_MAX = 60.8;
+  private BAT_LOFT_MAX = 30.8;
 
   private SIX_TIMING_MIN = 0.88; // must be almost perfect (0..1)
   private SIX_ALIGN_MIN = 0.75;
@@ -300,7 +300,6 @@ export class Game {
 
   const style = document.createElement("style");
   style.id = id;
-
   style.textContent = `
     html, body, #app, #renderCanvas {
       background: transparent !important;
@@ -309,24 +308,16 @@ export class Game {
       overflow: hidden !important;
     }
 
-    /* kill any pseudo overlays */
     body::before, body::after,
     #app::before, #app::after {
       content: none !important;
       display: none !important;
       opacity: 0 !important;
     }
-
-    /* also kill common overlay classes if any exists */
-    .overlay, .backdrop, .modal-overlay, .fullscreen-overlay, .game-over-overlay {
-      display: none !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
-    }
   `;
-
   document.head.appendChild(style);
 }
+
 
 
   // =========================================================
@@ -822,7 +813,9 @@ export class Game {
     try {
       
 
-      const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
+      // const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
+      const hdrUrl = this.assetUrl("hdr/sky2k.hdr") + `?v=${Date.now()}`;
+
       const hdr = new HDRCubeTexture(
     hdrUrl, 
     scene, 
