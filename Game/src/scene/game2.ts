@@ -196,9 +196,9 @@ export class Game {
 
   private assetUrl(rel: string) {
     // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
-    // Always use absolute /public/ path for assets regardless of BASE_URL
+    // Vite serves public/ folder contents at root /
     const cleanRel = rel.replace(/^\/+/, "");
-    return `/public/${cleanRel}`;
+    return `/${cleanRel}`;
   }
 
 
