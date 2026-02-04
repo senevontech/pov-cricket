@@ -263,6 +263,53 @@ export class Game {
     return { dist: Vector3.Distance(p, closest), t, closest };
   }
 
+
+  private waitTextureReady(tex: any, timeoutMs = 5000) {
+  return new Promise<boolean>((resolve) => {
+    if (!tex) return resolve(false);
+
+    // already ready
+    if (typeof tex.isReady === "function" && tex.isReady()) return resolve(true);
+
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      try {
+        if (loadObs && tex.onLoadObservable) tex.onLoadObservable.remove(loadObs);
+      } catch {}
+      clearTimeout(timer);
+      resolve(ok);
+    };
+
+    // Some versions have onLoadObservable
+    const loadObs =
+      tex.onLoadObservable?.addOnce?.(() => finish(true)) ??
+      tex.onLoadObservable?.add?.(() => finish(true));
+
+    // Fallback: poll readiness (covers cases where observable doesn’t fire)
+    const poll = setInterval(() => {
+      try {
+        if (typeof tex.isReady === "function" && tex.isReady()) {
+          clearInterval(poll);
+          finish(true);
+        }
+      } catch {}
+    }, 120);
+
+    const timer = setTimeout(() => {
+      clearInterval(poll);
+      try {
+        finish(typeof tex.isReady === "function" ? tex.isReady() : false);
+      } catch {
+        finish(false);
+      }
+    }, timeoutMs);
+  });
+}
+
+
+
   // =========================================================
   // ✅ HARD FIX: FORCE CANVAS TOP + KILL CSS OVERLAYS (pseudo-elements)
   // =========================================================
@@ -810,24 +857,75 @@ export class Game {
     sun.intensity = 2.0;
 
     // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
-    try {
-      // const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
-      const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
+    // try {
+      
+    //   const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
 
-      scene.environmentTexture = hdr;
+    //   scene.environmentTexture = hdr;
 
-      const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
-      if (skybox) skybox.isPickable = false;
+    //   const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
+    //   if (skybox) skybox.isPickable = false;
 
-      scene.environmentIntensity = 2.0;
-      scene.imageProcessingConfiguration.toneMappingEnabled = true;
-      scene.imageProcessingConfiguration.toneMappingType = 1;
-      scene.imageProcessingConfiguration.exposure = 1.25;
-      scene.imageProcessingConfiguration.contrast = 1.08;
-    } catch (e) {
-      console.warn("HDR failed to load:", e);
-      scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
-    }
+    //   scene.environmentIntensity = 2.0;
+    //   scene.imageProcessingConfiguration.toneMappingEnabled = true;
+    //   scene.imageProcessingConfiguration.toneMappingType = 1;
+    //   scene.imageProcessingConfiguration.exposure = 1.25;
+    //   scene.imageProcessingConfiguration.contrast = 1.08;
+    // } catch (e) {
+    //   console.warn("HDR failed to load:", e);
+    //   scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
+    // }
+
+    // ✅ HDR Environment (robust fallback)
+const applyFallbackEnv = () => {
+  try {
+    scene.environmentTexture?.dispose();
+  } catch {}
+  scene.environmentTexture = null as any;
+
+  scene.createDefaultEnvironment({
+    createSkybox: true,
+    skyboxSize: 6000,
+    skyboxColor: new Color3(0.75, 0.82, 0.92),
+  });
+
+  scene.environmentIntensity = 1.25;
+};
+
+const hdrUrl = this.assetUrl("hdr/sky.hdr");
+console.log("[HDR] url:", hdrUrl);
+
+let hdr: HDRCubeTexture | null = null;
+
+try {
+  hdr = new HDRCubeTexture(hdrUrl, scene, 512);
+
+  const ok = await this.waitTextureReady(hdr as any, 5000);
+
+  if (!ok) {
+    console.warn("[HDR] not ready (timeout/error) => fallback");
+    try { hdr.dispose(); } catch {}
+    applyFallbackEnv();
+  } else {
+    scene.environmentTexture = hdr;
+
+    const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
+    if (skybox) skybox.isPickable = false;
+
+    scene.environmentIntensity = 2.0;
+    scene.imageProcessingConfiguration.toneMappingEnabled = true;
+    scene.imageProcessingConfiguration.toneMappingType = 1;
+    scene.imageProcessingConfiguration.exposure = 1.25;
+    scene.imageProcessingConfiguration.contrast = 1.08;
+  }
+} catch (e) {
+  console.warn("[HDR] failed:", e);
+  try { hdr?.dispose(); } catch {}
+  applyFallbackEnv();
+}
+
+
+
 
     // ✅ Havok Physics
     const hk = await HavokPhysics();
