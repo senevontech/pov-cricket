@@ -52,6 +52,10 @@ private audioUnlocked = false;
 private lastBatHitSfxAt = 0;
 private BAT_HIT_SFX_COOLDOWN_MS = 70; // prevents spam if hit checks fire quickly
 
+private sfxBatHitReady = false;
+private sfxBatHitFailed = false;
+
+
 
   // ✅ LOADER UI
   private loaderWrap: HTMLDivElement | null = null;
@@ -317,23 +321,34 @@ private async unlockAudio() {
   }
 }
 
-private playBatHitSfx(intensity01 = 0.75) {
-  if (!this.sfxBatHit) return;
+private async playBatHitSfx(intensity01 = 0.75) {
+  if (!this.sfxBatHit || this.sfxBatHitFailed) return;
 
   const now = performance.now();
   if (now - this.lastBatHitSfxAt < this.BAT_HIT_SFX_COOLDOWN_MS) return;
   this.lastBatHitSfxAt = now;
 
   try {
-    // small variation so it doesn't feel repetitive
+    // ✅ ensure audio context is running right before play
+    await this.unlockAudio();
+
+    // ✅ wait until ready (if still loading)
+    if (!this.sfxBatHitReady) {
+      // tiny grace: if not ready, skip instead of “silent play”
+      return;
+    }
+
     const vol = 0.35 + 0.65 * this.clamp(intensity01, 0, 1);
     this.sfxBatHit.setVolume(vol);
 
-    // restart instantly (so repeated hits still play)
+    // ✅ replay reliably
     this.sfxBatHit.stop();
     this.sfxBatHit.play();
-  } catch {}
+  } catch (e) {
+    // console.warn("SFX play failed:", e);
+  }
 }
+
 
 
   // =========================================================
@@ -1214,6 +1229,18 @@ private injectAntiOverlayCSS() {
 
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
+    // ✅ Strong audio unlock (must happen from a real user gesture)
+const unlockOnce = async () => {
+  await this.unlockAudio();
+  window.removeEventListener("pointerdown", unlockOnce);
+  window.removeEventListener("touchstart", unlockOnce);
+  window.removeEventListener("mousedown", unlockOnce);
+};
+
+window.addEventListener("pointerdown", unlockOnce, { once: true });
+window.addEventListener("touchstart", unlockOnce, { once: true });
+window.addEventListener("mousedown", unlockOnce, { once: true });
+
     this.ensureLogo(); 
     this.maybeShowMobileHint();
     this.killFullscreenCurtains();
@@ -1221,16 +1248,37 @@ private injectAntiOverlayCSS() {
     const scene = new Scene(this.engine);
     this.scene = scene;
     // ✅ Load SFX (put file in /public/sfx/bat-hit.mp3)
+// ✅ Load SFX (put file in /public/sfx/bat-hit.mp3)
 try {
-  const sfxUrl = this.assetUrl("sfx/bat-hit.mp3") + `?v=${Date.now()}`;
-  this.sfxBatHit = new Sound("batHit", sfxUrl, scene, null, {
-    autoplay: false,
-    loop: false,
-    volume: 0.65,
-  });
+  const sfxUrl = this.assetUrl("sfx/bat-hit.mp3"); // ✅ remove ?v=Date.now() for testing first
+
+  this.sfxBatHitReady = false;
+  this.sfxBatHitFailed = false;
+
+  this.sfxBatHit = new Sound(
+    "batHit",
+    sfxUrl,
+    scene,
+    () => {
+      this.sfxBatHitReady = true;
+      // console.log("✅ bat-hit sfx ready");
+    },
+    {
+      autoplay: false,
+      loop: false,
+      volume: 0.65,
+      // ✅ important on some browsers
+      spatialSound: false,
+    }
+  );
+
+  // Optional: helps prevent “first play silent”
+  this.sfxBatHit.setPlaybackRate(1);
 } catch (e) {
+  this.sfxBatHitFailed = true;
   console.warn("Bat hit sfx load failed:", e);
 }
+
 
 
     this.ensureScoreboard();
