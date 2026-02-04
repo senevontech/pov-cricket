@@ -840,7 +840,7 @@ private injectAntiOverlayCSS() {
     const el = document.createElement("div");
     el.id = "cricket-scoreboard";
     el.style.position = "fixed";
-    el.style.right = "38px";
+    el.style.right = "15px";
     el.style.top = "14px";
     el.style.zIndex = "9999";
     el.style.pointerEvents = "none";
@@ -1871,7 +1871,7 @@ this.playBatHitSfx(intensity);
     // @ts-ignore
     body.wakeUp?.();
 
-    const speed = this.rand(2, 12);
+    const speed = this.rand(2, 7);
     const dist = Vector3.Distance(release, bouncePoint);
     const t = this.clamp(dist / speed, 0.25, 1.35);
 
