@@ -141,6 +141,66 @@ export class Game {
   private hitAssistFramesLeft = 0;
   private hitAssistVel = new Vector3(0, 0, 0);
 
+
+  private killFullscreenCurtains() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  const isFullscreenCover = (el: Element) => {
+    const r = (el as HTMLElement).getBoundingClientRect();
+    return r.width >= w * 0.9 && r.height >= h * 0.9;
+  };
+
+  const isPositionedCover = (cs: CSSStyleDeclaration) =>
+    (cs.position === "fixed" || cs.position === "absolute") &&
+    (cs.inset === "0px" || (cs.top === "0px" && cs.left === "0px"));
+
+  const isVisibleCurtain = (cs: CSSStyleDeclaration) => {
+    const bg = cs.backgroundColor || "";
+    const op = Number(cs.opacity || "1");
+    // detect rgba black-ish backgrounds or any non-transparent bg with opacity < 1
+    const looksDark =
+      bg.includes("rgba") && (bg.includes("0, 0, 0") || bg.includes("0,0,0"));
+    const notTransparent = bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
+    return (looksDark || notTransparent) && op > 0;
+  };
+
+  const allowIds = new Set([
+    "renderCanvas",
+    "cricket-scoreboard",
+    "cricket-play-again",
+    "cricket-countdown",
+    "cricket-popup",
+    "app",
+  ]);
+
+  const els = Array.from(document.body.querySelectorAll("*"));
+  for (const el of els) {
+    const id = (el as HTMLElement).id || "";
+    if (allowIds.has(id)) continue;
+
+    const cs = getComputedStyle(el);
+    if (!isPositionedCover(cs)) continue;
+    if (!isFullscreenCover(el)) continue;
+    if (!isVisibleCurtain(cs)) continue;
+
+    // ✅ Neutralize the curtain
+    const hEl = el as HTMLElement;
+    hEl.style.background = "transparent";
+    hEl.style.opacity = "0";
+    hEl.style.pointerEvents = "none";
+    hEl.style.backdropFilter = "none";
+    hEl.style.filter = "none";
+
+    console.log("[Curtain removed]", el);
+  }
+
+  // also ensure canvas has no css filter
+  this.canvas.style.filter = "none";
+  (this.canvas.style as any).webkitFilter = "none";
+}
+
+
   // =========================================================
   // ✅ SCORING / GAME STATE
   // =========================================================
@@ -295,12 +355,12 @@ export class Game {
   }
 
   private injectAntiOverlayCSS() {
-  const id = "anti-overlay-style";
-  if (document.getElementById(id)) return;
+    const id = "anti-overlay-style";
+    if (document.getElementById(id)) return;
 
-  const style = document.createElement("style");
-  style.id = id;
-  style.textContent = `
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = `
     html, body, #app, #renderCanvas {
       background: transparent !important;
       margin: 0 !important;
@@ -315,8 +375,8 @@ export class Game {
       opacity: 0 !important;
     }
   `;
-  document.head.appendChild(style);
-}
+    document.head.appendChild(style);
+  }
 
 
 
@@ -564,6 +624,13 @@ export class Game {
     if (this.playAgainBtnEl) return;
 
     const btn = document.createElement("button");
+    const baseBg = "rgba(255, 85, 0, 0.85)";
+    const hoverBg = "rgba(255, 85, 0, 0.95)";
+    btn.style.background = baseBg;
+    btn.style.boxShadow = "0 10px 30px rgba(0, 0, 0, 0.09)";
+    btn.style.backdropFilter = "none";
+
+
     btn.id = "cricket-play-again";
     btn.innerText = "PLAY AGAIN";
 
@@ -577,19 +644,23 @@ export class Game {
     btn.style.padding = "14px 18px";
     btn.style.borderRadius = "1px";
     btn.style.border = "1px solid rgba(255,255,255,0.25)";
-    btn.style.background = "rgba(255, 85, 0, 0.55)";
-    btn.style.backdropFilter = "blur(5px)";
+    // btn.style.background = "rgba(255, 85, 0, 0.55)";
+    // btn.style.backdropFilter = "blur(5px)";
     btn.style.color = "#fff";
     btn.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
     btn.style.fontWeight = "950";
     btn.style.letterSpacing = "0.8px";
     btn.style.fontSize = "15px";
     btn.style.cursor = "pointer";
-    btn.style.boxShadow = "0 26px 80px rgba(0,0,0,0.55)";
+    // btn.style.boxShadow = "0 26px 80px rgba(0,0,0,0.55)";
     btn.style.display = "none";
 
-    btn.onmouseenter = () => (btn.style.background = "rgba(0,0,0,0.7)");
-    btn.onmouseleave = () => (btn.style.background = "rgba(0,0,0,0.55)");
+    // btn.onmouseenter = () => (btn.style.background = "rgba(0,0,0,0.7)");
+    // btn.onmouseleave = () => (btn.style.background = "rgba(0,0,0,0.55)");
+
+    btn.onmouseenter = () => (btn.style.background = hoverBg);
+    btn.onmouseleave = () => (btn.style.background = baseBg);
+
 
     btn.onclick = () => this.resetGame();
 
@@ -791,6 +862,8 @@ export class Game {
   private async createScene() {
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
+    this.killFullscreenCurtains();
+
 
     const scene = new Scene(this.engine);
     this.scene = scene;
@@ -811,29 +884,29 @@ export class Game {
 
     // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
     try {
-      
+
 
       // const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
       const hdrUrl = this.assetUrl("hdr/sky2k.hdr") + `?v=${Date.now()}`;
 
       const hdr = new HDRCubeTexture(
-    hdrUrl, 
-    scene, 
-    512, 
-    false, // noMipmap
-    true,  // generateHarmonics
-    false, // gammaSpace
-    true,  // reserved
-    () => { 
-        // onSuccess: Do nothing, it worked!
-    }, 
-    (message, exception) => {
-        // 🚨 onError: This catches the 404 and runs the fallback!
-        console.warn("HDR Failed to load, switching to fallback environment:", message);
-        scene.environmentTexture = null; 
-        scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
-    }
-);
+        hdrUrl,
+        scene,
+        512,
+        false, // noMipmap
+        true,  // generateHarmonics
+        false, // gammaSpace
+        true,  // reserved
+        () => {
+          // onSuccess: Do nothing, it worked!
+        },
+        (message, exception) => {
+          // 🚨 onError: This catches the 404 and runs the fallback!
+          console.warn("HDR Failed to load, switching to fallback environment:", message);
+          scene.environmentTexture = null;
+          scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
+        }
+      );
 
       scene.environmentTexture = hdr;
 
@@ -997,26 +1070,26 @@ export class Game {
     });
 
     // ✅ Post FX pipeline
-    const pipeline = new DefaultRenderingPipeline("realismPipeline", true, scene, [camera]);
-    pipeline.fxaaEnabled = true;
-    pipeline.imageProcessingEnabled = true;
+    // const pipeline = new DefaultRenderingPipeline("realismPipeline", true, scene, [camera]);
+    // pipeline.fxaaEnabled = true;
+    // pipeline.imageProcessingEnabled = true;
 
-    pipeline.bloomEnabled = true;
-    pipeline.bloomThreshold = 0.85;
-    pipeline.bloomWeight = 0.25;
-    pipeline.bloomKernel = 64;
+    // pipeline.bloomEnabled = true;
+    // pipeline.bloomThreshold = 0.85;
+    // pipeline.bloomWeight = 0.25;
+    // pipeline.bloomKernel = 64;
 
-    pipeline.depthOfFieldEnabled = false;
+    // pipeline.depthOfFieldEnabled = false;
 
-    pipeline.sharpenEnabled = true;
-    pipeline.sharpen.edgeAmount = 0.25;
-    pipeline.sharpen.colorAmount = 0.15;
+    // pipeline.sharpenEnabled = true;
+    // pipeline.sharpen.edgeAmount = 0.25;
+    // pipeline.sharpen.colorAmount = 0.15;
 
-    if (pipeline.imageProcessing) {
-      pipeline.imageProcessing.vignetteEnabled = false;
-      pipeline.imageProcessing.contrast = 1.05;
-      pipeline.imageProcessing.exposure = 1.1;
-    }
+    // if (pipeline.imageProcessing) {
+    //   pipeline.imageProcessing.vignetteEnabled = false;
+    //   pipeline.imageProcessing.contrast = 1.05;
+    //   pipeline.imageProcessing.exposure = 1.1;
+    // }
 
     // ✅ Bat
     await this.setupBat3D(scene);
