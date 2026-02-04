@@ -10,7 +10,10 @@ app.appendChild(canvas);
 const engine = new Engine(canvas, true, {
   preserveDrawingBuffer: true,
   stencil: true,
+  alpha: false,
+  premultipliedAlpha: false,
 });
+
 
 const game = new Game(engine, canvas);
 
