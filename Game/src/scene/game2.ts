@@ -52,6 +52,10 @@ export class Game {
   private loaderTarget = 0;
   private loaderAnimRaf: number | null = null;
 
+  // ✅ TOP-LEFT LOGO (mobile responsive)
+  private logoWrap: HTMLDivElement | null = null;
+  private logoImg: HTMLImageElement | null = null;
+
   // ✅ Camera
   private camera: UniversalCamera | null = null;
 
@@ -203,7 +207,7 @@ export class Game {
   }
 
   private assetUrl(rel: string) {
-    // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
+    // rel like: "models/cricket3.glb" or "hdr/sky.hdr" or "ui/logo.png"
     const base = (import.meta as any).env?.BASE_URL ?? "/";
     const cleanBase = base.endsWith("/") ? base : base + "/";
     const cleanRel = rel.replace(/^\/+/, "");
@@ -238,14 +242,15 @@ export class Game {
       return (looksDark || notTransparent) && op > 0;
     };
 
-    // ✅ IMPORTANT: allow loader id so it doesn't get removed
+    // ✅ IMPORTANT: allow loader + logo id so it doesn't get removed
     const allowIds = new Set([
       "renderCanvas",
       "cricket-scoreboard",
       "cricket-play-again",
       "cricket-countdown",
       "cricket-popup",
-      "cricket-loader", // ✅ ADD THIS
+      "cricket-loader",
+      "cricket-logo", // ✅ ADD THIS
       "app",
     ]);
 
@@ -265,8 +270,6 @@ export class Game {
       hEl.style.pointerEvents = "none";
       hEl.style.backdropFilter = "none";
       hEl.style.filter = "none";
-
-      // console.log("[Curtain removed]", el);
     }
 
     this.canvas.style.filter = "none";
@@ -428,6 +431,57 @@ export class Game {
   }
 
   // =========================================================
+  // ✅ TOP-LEFT LOGO (mobile responsive)
+  // Put your logo file in: /public/ui/logo.png
+  // Then it will load as: this.assetUrl("ui/logo.png")
+  // =========================================================
+  private ensureLogo() {
+    if (this.logoWrap) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "cricket-logo";
+    wrap.style.position = "fixed";
+    wrap.style.left = "max(10px, env(safe-area-inset-left))";
+    wrap.style.top = "max(10px, env(safe-area-inset-top))";
+    wrap.style.zIndex = "10020"; // above canvas, below loader (999999)
+    wrap.style.pointerEvents = "none";
+    wrap.style.userSelect = "none";
+    wrap.style.webkitUserSelect = "none" as any;
+
+    // subtle readable pill (kept minimal)
+    wrap.style.padding = "6px 8px";
+    wrap.style.border = "1px solid rgba(255, 255, 255, 0)";
+    wrap.style.background = "rgba(0, 0, 0, 0)";
+    wrap.style.backdropFilter = "blur(6px)";
+    wrap.style.borderRadius = "0px";
+    wrap.style.boxShadow = "0 14px 40px rgba(0, 0, 0, 0)";
+
+    const img = document.createElement("img");
+    img.alt = "Logo";
+    img.decoding = "async";
+
+    // ✅ change this path if your logo is elsewhere
+    img.src = this.assetUrl("logo/logo.png");
+
+    // ✅ responsive sizing (mobile -> desktop)
+    img.style.width = "clamp(90px, 20vw, 150px)";
+    img.style.height = "auto";
+    img.style.display = "block";
+    img.style.objectFit = "contain";
+
+    // if logo missing, hide silently
+    img.onerror = () => {
+      wrap.style.display = "none";
+    };
+
+    wrap.appendChild(img);
+    document.body.appendChild(wrap);
+
+    this.logoWrap = wrap;
+    this.logoImg = img;
+  }
+
+  // =========================================================
   // ✅ PITCH CLAMP HELPERS
   // =========================================================
   private getPitchBasis() {
@@ -513,8 +567,17 @@ export class Game {
     const style = document.createElement("style");
     style.id = id;
     style.textContent = `
-      html, body, #app, #renderCanvas { background: transparent !important; margin:0 !important; padding:0 !important; overflow:hidden !important; }
-      body::before, body::after, #app::before, #app::after { content:none !important; display:none !important; opacity:0 !important; }
+      html, body, #app, #renderCanvas {
+        background: transparent !important;
+        margin:0 !important;
+        padding:0 !important;
+        overflow:hidden !important;
+      }
+      body::before, body::after, #app::before, #app::after {
+        content:none !important;
+        display:none !important;
+        opacity:0 !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -986,7 +1049,8 @@ export class Game {
 
     this.injectAntiOverlayCSS();
     this.forceCanvasFullscreenAndTop();
-    this.killFullscreenCurtains(); // ✅ now loader will NOT be removed
+    this.ensureLogo(); // ✅ ADD LOGO (top-left, responsive)
+    this.killFullscreenCurtains(); // ✅ now loader + logo will NOT be removed
 
     const scene = new Scene(this.engine);
     this.scene = scene;
