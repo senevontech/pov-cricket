@@ -196,9 +196,10 @@ export class Game {
 
   private assetUrl(rel: string) {
     // rel like: "models/cricket3.glb" or "hdr/sky.hdr"
-    // Vite serves public/ folder contents at root /
+    const base = (import.meta as any).env?.BASE_URL ?? "/";
+    const cleanBase = base.endsWith("/") ? base : base + "/";
     const cleanRel = rel.replace(/^\/+/, "");
-    return `/${cleanRel}`;
+    return cleanBase + cleanRel;
   }
 
 
@@ -261,53 +262,6 @@ export class Game {
     const closest = a.add(ab.scale(t));
     return { dist: Vector3.Distance(p, closest), t, closest };
   }
-
-
-  private waitTextureReady(tex: any, timeoutMs = 5000) {
-  return new Promise<boolean>((resolve) => {
-    if (!tex) return resolve(false);
-
-    // already ready
-    if (typeof tex.isReady === "function" && tex.isReady()) return resolve(true);
-
-    let done = false;
-    const finish = (ok: boolean) => {
-      if (done) return;
-      done = true;
-      try {
-        if (loadObs && tex.onLoadObservable) tex.onLoadObservable.remove(loadObs);
-      } catch {}
-      clearTimeout(timer);
-      resolve(ok);
-    };
-
-    // Some versions have onLoadObservable
-    const loadObs =
-      tex.onLoadObservable?.addOnce?.(() => finish(true)) ??
-      tex.onLoadObservable?.add?.(() => finish(true));
-
-    // Fallback: poll readiness (covers cases where observable doesn’t fire)
-    const poll = setInterval(() => {
-      try {
-        if (typeof tex.isReady === "function" && tex.isReady()) {
-          clearInterval(poll);
-          finish(true);
-        }
-      } catch {}
-    }, 120);
-
-    const timer = setTimeout(() => {
-      clearInterval(poll);
-      try {
-        finish(typeof tex.isReady === "function" ? tex.isReady() : false);
-      } catch {
-        finish(false);
-      }
-    }, timeoutMs);
-  });
-}
-
-
 
   // =========================================================
   // ✅ HARD FIX: FORCE CANVAS TOP + KILL CSS OVERLAYS (pseudo-elements)
@@ -390,16 +344,16 @@ export class Game {
     el.style.backdropFilter = "blur(2px)";
     el.style.boxShadow = "0 26px 80px rgba(0, 0, 0, 0.21)";
 
-    el.style.color = "#000000";
+    el.style.color = "#fff";
     el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    el.style.fontWeight = "800";
+    el.style.fontWeight = "1000";
     el.style.letterSpacing = "1px";
     el.style.textAlign = "center";
     el.style.fontSize = "32px";
     el.style.textTransform = "uppercase";
     el.style.userSelect = "none";
     el.style.whiteSpace = "nowrap";
-    el.style.textShadow = "0 6px 24px rgba(0, 0, 0, 0)";
+    el.style.textShadow = "0 6px 24px rgba(0,0,0,0.6)";
 
     // subtle animation using CSS transition
     el.style.transition = "opacity 240ms ease, transform 280ms ease";
@@ -463,13 +417,13 @@ export class Game {
     const el = document.createElement("div");
     el.id = "cricket-scoreboard";
     el.style.position = "fixed";
-    el.style.right = "15px";
+    el.style.right = "38px";
     el.style.top = "14px";
     el.style.zIndex = "9999";
     el.style.pointerEvents = "none";
     el.style.padding = "10px 12px";
     el.style.borderRadius = "1px";
-    el.style.border = "3px solid rgb(153, 153, 153)";
+    el.style.border = "1px solid rgba(255, 98, 0, 0.18)";
     el.style.background = "rgba(193, 71, 0, 0.75)";
     el.style.backdropFilter = "blur(0px)";
     el.style.color = "#ffffff";
@@ -847,8 +801,7 @@ export class Game {
     this.ensurePopup();
     this.showPlayAgain(false);
 
-    // Use a lighter clear color as fallback (sky blue instead of near-black)
-    scene.clearColor = new Color4(0.53, 0.71, 0.90, 1); // Light sky blue
+    scene.clearColor = new Color4(0.02, 0.03, 0.05, 1);
 
     const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), scene);
     hemi.intensity = 1.2;
@@ -857,75 +810,45 @@ export class Game {
     sun.intensity = 2.0;
 
     // ✅ HDR Environment (safe + fallback)  -> avoids black screen if HDR missing
-    // try {
+    try {
+      // const hdr = new HDRCubeTexture("/hdr/sky.hdr", scene, 512);
       
-    //   const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
+      // const hdr = new HDRCubeTexture(this.assetUrl("hdr/sky.hdr"), scene, 512);
 
-    //   scene.environmentTexture = hdr;
+      const hdrUrl = this.assetUrl("hdr/sky2k.hdr");
+      const hdr = new HDRCubeTexture(
+    hdrUrl, 
+    scene, 
+    512, 
+    false, // noMipmap
+    true,  // generateHarmonics
+    false, // gammaSpace
+    true,  // reserved
+    () => { 
+        // onSuccess: Do nothing, it worked!
+    }, 
+    (message, exception) => {
+        // 🚨 onError: This catches the 404 and runs the fallback!
+        console.warn("HDR Failed to load, switching to fallback environment:", message);
+        scene.environmentTexture = null; 
+        scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
+    }
+);
 
-    //   const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
-    //   if (skybox) skybox.isPickable = false;
+      scene.environmentTexture = hdr;
 
-    //   scene.environmentIntensity = 2.0;
-    //   scene.imageProcessingConfiguration.toneMappingEnabled = true;
-    //   scene.imageProcessingConfiguration.toneMappingType = 1;
-    //   scene.imageProcessingConfiguration.exposure = 1.25;
-    //   scene.imageProcessingConfiguration.contrast = 1.08;
-    // } catch (e) {
-    //   console.warn("HDR failed to load:", e);
-    //   scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
-    // }
+      const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
+      if (skybox) skybox.isPickable = false;
 
-    // ✅ HDR Environment (robust fallback)
-const applyFallbackEnv = () => {
-  try {
-    scene.environmentTexture?.dispose();
-  } catch {}
-  scene.environmentTexture = null as any;
-
-  scene.createDefaultEnvironment({
-    createSkybox: true,
-    skyboxSize: 6000,
-    skyboxColor: new Color3(0.75, 0.82, 0.92), // Light sky blue
-  });
-
-  scene.environmentIntensity = 1.5; // Increased from 1.25 for better visibility
-};
-
-const hdrUrl = this.assetUrl("hdr/sky.hdr");
-console.log("[HDR] url:", hdrUrl);
-
-let hdr: HDRCubeTexture | null = null;
-
-try {
-  hdr = new HDRCubeTexture(hdrUrl, scene, 512);
-
-  const ok = await this.waitTextureReady(hdr as any, 5000);
-
-  if (!ok) {
-    console.warn("[HDR] not ready (timeout/error) => fallback");
-    try { hdr.dispose(); } catch {}
-    applyFallbackEnv();
-  } else {
-    scene.environmentTexture = hdr;
-
-    const skybox = scene.createDefaultSkybox(hdr, true, 6000, 0.0);
-    if (skybox) skybox.isPickable = false;
-
-    scene.environmentIntensity = 2.0;
-    scene.imageProcessingConfiguration.toneMappingEnabled = true;
-    scene.imageProcessingConfiguration.toneMappingType = 1;
-    scene.imageProcessingConfiguration.exposure = 1.25;
-    scene.imageProcessingConfiguration.contrast = 1.08;
-  }
-} catch (e) {
-  console.warn("[HDR] failed:", e);
-  try { hdr?.dispose(); } catch {}
-  applyFallbackEnv();
-}
-
-
-
+      scene.environmentIntensity = 2.0;
+      scene.imageProcessingConfiguration.toneMappingEnabled = true;
+      scene.imageProcessingConfiguration.toneMappingType = 1;
+      scene.imageProcessingConfiguration.exposure = 1.25;
+      scene.imageProcessingConfiguration.contrast = 1.08;
+    } catch (e) {
+      console.warn("HDR failed to load:", e);
+      scene.createDefaultEnvironment({ createSkybox: true, skyboxSize: 6000 });
+    }
 
     // ✅ Havok Physics
     const hk = await HavokPhysics();
