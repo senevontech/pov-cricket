@@ -380,8 +380,8 @@ private ensureHowToPlayUI() {
   btn.style.width = "42px";
   btn.style.height = "42px";
   btn.style.borderRadius = "0px";
-  btn.style.border = "1px solid rgb(165, 165, 165)";
-  btn.style.background = "rgba(255, 81, 0, 0.33)";
+  btn.style.border = "1px solid rgba(0, 0, 0, 0)";
+  btn.style.background = "rgba(255, 81, 0, 0.46)";
   btn.style.backdropFilter = "blur(6px)";
   btn.style.color = "#ffffff";
   btn.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -977,7 +977,7 @@ private injectAntiOverlayCSS() {
       z-index:10060;
     }
     @media (max-width: 520px){
-      #cricket-help-btn{ bottom:max(130px, env(safe-area-inset-top)); right:max(10px, env(safe-area-inset-right)); }
+      #cricket-help-btn{ bottom:max(30px, env(safe-area-inset-top)); right:max(15px, env(safe-area-inset-right)); }
     }
       /* ✅ Hide scrollbar for How To Play modal (Chrome, Safari) */
 #cricket-howto > div::-webkit-scrollbar {
